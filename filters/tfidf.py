@@ -5,7 +5,8 @@ from pathlib import Path
 import pandas as pd
 from joblib import dump, load
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.linear_model import LogisticRegression
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.pipeline import Pipeline
 
 from core.types import FilterResult
@@ -24,69 +25,58 @@ class TfidfFilter(BaseFilter):
         super().__init__("tfidf")
         
         root_dir = Path(__file__).resolve().parents[1]
-        self.model_path = Path(model_path) if model_path else root_dir / "models" / "tfidf_model.pkl"
+        # Новая архитектура: отдельные файлы для vectorizer и classifier
+        self.vectorizer_path = Path(model_path).parent / "tfidf_vectorizer.pkl" if model_path else root_dir / "models" / "tfidf_vectorizer.pkl"
+        self.classifier_path = Path(model_path).parent / "tfidf_classifier.pkl" if model_path else root_dir / "models" / "tfidf_classifier.pkl"
         self.dataset_path = Path(dataset_path) if dataset_path else root_dir / "data" / "messages.csv"
         
-        self.model: Pipeline | None = None
+        self.vectorizer: TfidfVectorizer | None = None
+        self.classifier: CalibratedClassifierCV | None = None
         self._new_samples = 0
-        self._load_or_train()
+        self._load_models()
     
-    def _load_or_train(self) -> None:
-        if self.model_path.exists():
-            try:
-                self.model = load(self.model_path)
-                LOGGER.info(f"Loaded TF-IDF model from {self.model_path}")
-            except Exception as e:
-                LOGGER.error(f"Failed to load model: {e}, training from scratch")
-                self.train()
-        else:
-            LOGGER.warning(f"Model not found at {self.model_path}, training from scratch")
-            self.train()
+    def _load_models(self) -> None:
+        """Загружает vectorizer и classifier из отдельных файлов"""
+        try:
+            if self.vectorizer_path.exists() and self.classifier_path.exists():
+                self.vectorizer = load(self.vectorizer_path)
+                self.classifier = load(self.classifier_path)
+                LOGGER.info(f"Loaded TF-IDF models from {self.vectorizer_path.parent}")
+            else:
+                LOGGER.warning(f"Models not found, need training via scripts/train_tfidf.py")
+        except Exception as e:
+            LOGGER.error(f"Failed to load models: {e}")
+            self.vectorizer = None
+            self.classifier = None
     
     def train(self) -> None:
-        if not self.dataset_path.exists():
-            LOGGER.error(f"Dataset not found: {self.dataset_path}")
-            return
-        
-        try:
-            df = pd.read_csv(self.dataset_path)
-            if len(df) == 0:
-                LOGGER.error("Dataset is empty")
-                return
-            
-            X, y = df["message"], df["label"]
-            
-            pipeline = Pipeline([
-                ("tfidf", TfidfVectorizer(stop_words=None)),
-                ("clf", MultinomialNB()),
-            ])
-            
-            LOGGER.info(f"Training TF-IDF model on {len(df)} samples...")
-            pipeline.fit(X, y)
-            self.model = pipeline
-            
-            self.model_path.parent.mkdir(parents=True, exist_ok=True)
-            dump(pipeline, self.model_path)
-            LOGGER.info(f"Model saved to {self.model_path}")
-            
-            self._new_samples = 0
-        except Exception as e:
-            LOGGER.error(f"Failed to train model: {e}")
+        """
+        DEPRECATED: Используйте scripts/train_tfidf.py для обучения.
+        Новая архитектура требует char-level n-grams и калибровку.
+        """
+        LOGGER.error(
+            "Direct training deprecated. Use 'python scripts/train_tfidf.py' instead. "
+            "New architecture uses char-level n-grams (1-4) and calibrated LogisticRegression."
+        )
     
     async def analyze(self, text: str) -> FilterResult:
-        if not self.model:
-            LOGGER.warning("Model not loaded, returning neutral score")
+        if not self.vectorizer or not self.classifier:
+            LOGGER.warning("Models not loaded, returning neutral score")
             return FilterResult(
                 filter_name=self.name,
                 score=0.5,
                 confidence=0.0,
-                details={"error": "Model not loaded"}
+                details={"error": "Models not loaded"}
             )
         
         try:
-            prediction = int(self.model.predict([text])[0])
-            proba = self.model.predict_proba([text])[0]
-            spam_proba = float(proba[1]) if len(proba) > 1 else float(prediction)
+            # Векторизация текста
+            features = self.vectorizer.transform([text])
+            
+            # Предсказание с калибровкой
+            proba = self.classifier.predict_proba(features)[0]
+            spam_proba = float(proba[1]) if len(proba) > 1 else 0.5
+            prediction = int(spam_proba > 0.5)
             
             return FilterResult(
                 filter_name=self.name,
@@ -107,7 +97,7 @@ class TfidfFilter(BaseFilter):
             )
     
     def is_ready(self) -> bool:
-        return self.model is not None
+        return self.vectorizer is not None and self.classifier is not None
     
     def update_dataset(self, message: str, label: int) -> bool:
         if label not in (0, 1):

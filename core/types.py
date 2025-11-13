@@ -12,7 +12,7 @@ class Action(str, Enum):
     KICK = "kick"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class FilterResult:
     filter_name: str
     score: float
@@ -20,7 +20,7 @@ class FilterResult:
     details: dict[str, any] | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class MessageMetadata:
     """Метаданные сообщения для контекстного анализа"""
     message_id: int
@@ -36,7 +36,7 @@ class MessageMetadata:
     is_channel_announcement: bool = False  # Пост из канала
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class EmbeddingVectors:
     """Векторы эмбеддингов для разных уровней контекста"""
     E_msg: List[float] | None = None  # Текущее сообщение
@@ -44,7 +44,7 @@ class EmbeddingVectors:
     E_user: List[float] | None = None  # Капсула последних сообщений пользователя
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class AnalysisResult:
     keyword_result: FilterResult
     tfidf_result: FilterResult
