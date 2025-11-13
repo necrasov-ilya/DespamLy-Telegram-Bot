@@ -23,10 +23,9 @@ from core.coordinator import FilterCoordinator
 from core.types import Action, AnalysisResult
 from filters.keyword import KeywordFilter
 from filters.tfidf import TfidfFilter
-from filters.embedding import EmbeddingFilter
+from filters.pattern import PatternClassifier
 from services.policy import PolicyEngine
 from services.dataset import DatasetManager
-from services.meta_classifier import MetaClassifier  # NEW
 from bot.keyboards import moderator_keyboard, format_debug_card, format_notification_card
 from storage import init_storage
 from storage.interfaces import ModerationEventInput, ModerationActionInput
@@ -37,10 +36,9 @@ LOGGER = get_logger(__name__)
 STORAGE = None
 keyword_filter: KeywordFilter | None = None
 tfidf_filter: TfidfFilter | None = None
-embedding_filter: EmbeddingFilter | None = None
+pattern_filter: PatternClassifier | None = None
 coordinator: FilterCoordinator | None = None
 policy_engine: PolicyEngine | None = None
-meta_classifier: MetaClassifier | None = None
 dataset_manager: DatasetManager | None = None
 runtime_config = None
 _INITIALIZED = False
@@ -59,7 +57,7 @@ def _apply_runtime_to_policy_engine() -> None:
 
 
 def _ensure_initialized() -> None:
-    global _INITIALIZED, STORAGE, keyword_filter, tfidf_filter, embedding_filter, coordinator, policy_engine, meta_classifier, dataset_manager, runtime_config
+    global _INITIALIZED, STORAGE, keyword_filter, tfidf_filter, pattern_filter, coordinator, policy_engine, dataset_manager, runtime_config
     if _INITIALIZED:
         return
 
@@ -67,32 +65,24 @@ def _ensure_initialized() -> None:
 
     keyword_filter_local = KeywordFilter()
     tfidf_filter_local = TfidfFilter()
-    embedding_filter_local = EmbeddingFilter(
-        mode=settings.EMBEDDING_MODE,
-        api_key=settings.MISTRAL_API_KEY,
-        model_id=settings.EMBEDDING_MODEL_ID,
-        ollama_model=settings.OLLAMA_MODEL,
-        ollama_base_url=settings.OLLAMA_BASE_URL,
-    )
+    pattern_filter_local = PatternClassifier()
 
     coordinator_local = FilterCoordinator(
         keyword_filter=keyword_filter_local,
         tfidf_filter=tfidf_filter_local,
-        embedding_filter=embedding_filter_local,
+        pattern_filter=pattern_filter_local,
     )
 
     policy_engine_local = PolicyEngine()
-    meta_classifier_local = MetaClassifier()
 
     from config.runtime import runtime_config as runtime_state
 
     globals().update(
         keyword_filter=keyword_filter_local,
         tfidf_filter=tfidf_filter_local,
-        embedding_filter=embedding_filter_local,
+        pattern_filter=pattern_filter_local,
         coordinator=coordinator_local,
         policy_engine=policy_engine_local,
-        meta_classifier=meta_classifier_local,
         runtime_config=runtime_state,
     )
 
@@ -103,7 +93,6 @@ def _ensure_initialized() -> None:
     LOGGER.info('  META_NOTIFY: %s', runtime_config.meta_notify)
     LOGGER.info('  META_DELETE: %s', runtime_config.meta_delete)
     LOGGER.info('  META_KICK: %s', runtime_config.meta_kick)
-    LOGGER.info('  META_CLASSIFIER_READY: %s', meta_classifier_local.is_ready())
 
     data_path = Path(__file__).resolve().parents[1] / 'data' / 'messages.csv'
     globals()['dataset_manager'] = DatasetManager(data_path)

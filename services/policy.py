@@ -1,7 +1,7 @@
 """
 services/policy.py
 ────────────────────────────────────────────────────────
-Policy Engine для контекстного анализа спама с тремя режимами работы.
+Policy Engine для принятия решений на основе Pattern classifier.
 
 РЕЖИМЫ:
 - manual: только NOTIFY при p_spam ≥ META_NOTIFY, DELETE/KICK запрещены
@@ -35,14 +35,13 @@ class PolicyEngine:
     
     ВАЖНО:
     - Downweights применяются ПЕРЕД сравнением с порогами
-    - Graceful degradation: если degraded_ctx=True, поднимаем META_NOTIFY на +0.05
     - Все примененные downweights записываются в applied_downweights
     """
     
     def __init__(self):
         self.policy_mode = settings.POLICY_MODE
         
-        # Пороги для META
+        # Пороги для Pattern classifier
         self.meta_notify = settings.META_NOTIFY
         self.meta_delete = settings.META_DELETE
         self.meta_kick = settings.META_KICK
@@ -52,9 +51,6 @@ class PolicyEngine:
         self.downweight_reply_to_staff = settings.META_DOWNWEIGHT_REPLY_TO_STAFF
         self.downweight_whitelist = settings.META_DOWNWEIGHT_WHITELIST
         self.downweight_brand = settings.META_DOWNWEIGHT_BRAND
-        # Legacy thresholds (keyword-first hysteresis)
-        self.legacy_keyword_threshold = getattr(settings, "LEGACY_KEYWORD_THRESHOLD", 0.60)
-        self.legacy_tfidf_threshold = getattr(settings, "LEGACY_TFIDF_THRESHOLD", self.meta_notify)
         
         LOGGER.info(
             f"PolicyEngine initialized: mode={self.policy_mode}, "
@@ -73,24 +69,24 @@ class PolicyEngine:
         - p_spam_adjusted: скорректированная вероятность после downweights
         - applied_downweights: список примененных множителей
         - thresholds_used: пороги, использованные для решения
-        - degraded_ctx: флаг деградации контекста
         - action_reason: текстовое объяснение
         """
-        # Проверяем наличие meta_proba
-        if self.policy_mode == "legacy-manual":
-            return self._decide_legacy_manual(analysis)
-
-        if analysis.meta_proba is None:
-            LOGGER.warning("meta_proba is None, falling back to aggregate filter scores")
+        # Используем pattern_result.score как финальную вероятность
+        if analysis.pattern_result is None:
+            LOGGER.warning("pattern_result is None, falling back to aggregate filter scores")
             return self._decide_without_meta(analysis)
         
-        p_spam_original = analysis.meta_proba
+        p_spam_original = analysis.pattern_result.score
         
         # Применяем понижающие множители
         p_spam_adjusted, applied_downweights = self._apply_downweights(analysis)
         
-        # Graceful degradation для контекста
-        thresholds_adjusted = self._adjust_thresholds_for_degradation(analysis)
+        # Используем обычные пороги (без деградации контекста)
+        thresholds_adjusted = {
+            'notify': self.meta_notify,
+            'delete': self.meta_delete,
+            'kick': self.meta_kick
+        }
         
         # Выбираем действие в зависимости от режима
         action = self._select_action(
@@ -114,7 +110,6 @@ class PolicyEngine:
             'p_spam_adjusted': float(p_spam_adjusted),
             'applied_downweights': applied_downweights,
             'thresholds_used': thresholds_adjusted,
-            'degraded_ctx': getattr(analysis, 'degraded_ctx', False),
             'action_reason': reason
         }
         
@@ -125,109 +120,39 @@ class PolicyEngine:
         
         return action, decision_details
     
-    def _decide_legacy_manual(self, analysis: AnalysisResult) -> Tuple[Action, Dict]:
-        """Fallback logic that emulates legacy keyword + TF-IDF flow."""
-        keyword_score = analysis.keyword_result.score if analysis.keyword_result else 0.0
-        tfidf_score = analysis.tfidf_result.score if analysis.tfidf_result else 0.0
-
-        action = Action.APPROVE
-        trigger = None
-        trigger_score = 0.0
-        trigger_threshold = 0.0
-
-        if keyword_score >= self.legacy_keyword_threshold:
-            action = Action.NOTIFY
-            trigger = "keyword"
-            trigger_score = keyword_score
-            trigger_threshold = self.legacy_keyword_threshold
-        elif tfidf_score >= self.legacy_tfidf_threshold:
-            action = Action.NOTIFY
-            trigger = "tfidf"
-            trigger_score = tfidf_score
-            trigger_threshold = self.legacy_tfidf_threshold
-
-        if trigger:
-            reason = f"{trigger} score {trigger_score:.2f} >= {trigger_threshold:.2f}"
-        else:
-            reason = "legacy thresholds not exceeded"
-
-        meta_preview = None
-        meta_thresholds = {
-            "notify": self.meta_notify,
-            "delete": self.meta_delete,
-            "kick": self.meta_kick
-        }
-
-        if analysis.meta_proba is not None:
-            meta_value = float(analysis.meta_proba)
-            meta_action = self._select_action(
-                meta_value,
-                meta_thresholds,
-                "auto"
-            )
-            meta_preview = {
-                "p_spam": meta_value,
-                "recommended_action": meta_action.value,
-                "thresholds": meta_thresholds
-            }
-
-        decision_details = {
-            "policy_mode": self.policy_mode,
-            "legacy_mode": True,
-            "legacy_action": action.value,
-            "legacy_keyword_score": float(keyword_score),
-            "legacy_tfidf_score": float(tfidf_score),
-            "legacy_keyword_threshold": float(self.legacy_keyword_threshold),
-            "legacy_tfidf_threshold": float(self.legacy_tfidf_threshold),
-            "legacy_trigger": trigger,
-            "legacy_trigger_score": float(trigger_score) if trigger else None,
-            "legacy_trigger_threshold": float(trigger_threshold) if trigger else None,
-            "action_reason": reason,
-            "applied_downweights": [],
-            "legacy_thresholds": {
-                "keyword": float(self.legacy_keyword_threshold),
-                "tfidf": float(self.legacy_tfidf_threshold)
-            },
-            "thresholds_used": meta_thresholds,
-        }
-
-        if meta_preview:
-            decision_details["meta_preview"] = meta_preview
-            decision_details["p_spam_original"] = meta_preview["p_spam"]
-            decision_details["p_spam_adjusted"] = meta_preview["p_spam"]
-
-        LOGGER.info(
-            "Legacy policy decision: %s | keyword=%.3f | tfidf=%.3f | trigger=%s",
-            action.name,
-            keyword_score,
-            tfidf_score,
-            trigger or "none"
-        )
-
-        return action, decision_details
-
     def _decide_without_meta(self, analysis: AnalysisResult) -> Tuple[Action, Dict]:
         """
-        Резервное решение, если метаклассификатор недоступен.
-        Используем агрегированный скор keyword / TF-IDF / embedding и текущие пороги.
+        Резервное решение, если PatternClassifier недоступен.
+        Используем average_score из keyword + TF-IDF.
         """
-        # Возвращаемся к наследуемой логике, чтобы старый контур видел привычные данные.
-        legacy_action, legacy_details = self._decide_legacy_manual(analysis)
-        decision_details = dict(legacy_details)
-        if self.policy_mode != "legacy-manual":
-            decision_details["legacy_mode"] = False
-        decision_details["fallback_meta"] = True
-        decision_details["degraded_ctx"] = getattr(analysis, "degraded_ctx", False)
+        avg_score = analysis.average_score  # Среднее keyword (20%) + tfidf (40%) + pattern(0%)
+        
+        action = Action.APPROVE
+        if avg_score >= self.meta_notify:
+            action = Action.NOTIFY
+        
+        decision_details = {
+            "policy_mode": self.policy_mode,
+            "fallback_to_average": True,
+            "p_spam_original": float(avg_score),
+            "p_spam_adjusted": float(avg_score),
+            "applied_downweights": [],
+            "thresholds_used": {
+                'notify': self.meta_notify,
+                'delete': self.meta_delete,
+                'kick': self.meta_kick
+            },
+            "action_reason": f"Fallback to average_score {avg_score:.3f}"
+        }
 
-        LOGGER.info(
-            "Fallback decision without meta score: %s | keyword=%.3f | tfidf=%.3f | mode=%s",
-            legacy_action.name,
-            analysis.keyword_result.score if analysis.keyword_result else 0.0,
-            analysis.tfidf_result.score if analysis.tfidf_result else 0.0,
+        LOGGER.warning(
+            "Fallback decision without pattern classifier: %s | avg_score=%.3f | mode=%s",
+            action.name,
+            avg_score,
             self.policy_mode,
         )
 
-        return legacy_action, decision_details
+        return action, decision_details
 
     def _apply_downweights(self, analysis: AnalysisResult) -> Tuple[float, List[Dict]]:
         """
@@ -236,7 +161,7 @@ class PolicyEngine:
         Returns:
             (adjusted_p_spam, list_of_applied_downweights)
         """
-        p_spam = analysis.meta_proba
+        p_spam = analysis.pattern_result.score
         applied = []
         
         metadata = analysis.metadata
@@ -291,24 +216,6 @@ class PolicyEngine:
         
         return p_spam, applied
     
-    def _adjust_thresholds_for_degradation(self, analysis: AnalysisResult) -> Dict:
-        """
-        Поднимает порог META_NOTIFY на +0.05 если контекст деградирован.
-        
-        Это снижает чувствительность при отсутствии E_ctx,
-        чтобы не шумить при неполной информации.
-        """
-        thresholds = {
-            'notify': self.meta_notify,
-            'delete': self.meta_delete,
-            'kick': self.meta_kick
-        }
-        
-        if getattr(analysis, 'degraded_ctx', False):
-            thresholds['notify'] += 0.05
-            LOGGER.debug("Degraded context detected, raising META_NOTIFY by +0.05")
-        
-        return thresholds
     
     def _select_action(
         self,

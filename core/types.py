@@ -37,71 +37,50 @@ class MessageMetadata:
 
 
 @dataclass(frozen=True)
-class EmbeddingVectors:
-    """Векторы эмбеддингов для разных уровней контекста"""
-    E_msg: List[float] | None = None  # Текущее сообщение
-    E_ctx: List[float] | None = None  # Контекстная капсула (сообщение + история)
-    E_user: List[float] | None = None  # Капсула последних сообщений пользователя
-
-
-@dataclass(frozen=True)
 class AnalysisResult:
+    """
+    Результат анализа сообщения через упрощённую архитектуру.
+    
+    Новая архитектура: Keyword → TF-IDF → Pattern (LightGBM)
+    Убраны: эмбеддинги, капсулы, история чатов/пользователей
+    """
     keyword_result: FilterResult
     tfidf_result: FilterResult
-    embedding_result: FilterResult | None
-    meta_proba: float | None = None  # Вероятность спама от MetaClassifier
-    meta_debug: dict | None = None   # Отладочная информация от MetaClassifier
-    
-    # Новые поля для контекстного анализа
+    pattern_result: FilterResult  # НОВОЕ: PatternClassifier (20 признаков + LightGBM)
     metadata: MessageMetadata | None = None
-    context_capsule: str | None = None  # Нормализованная контекстная капсула
-    user_capsule: str | None = None     # Капсула истории пользователя
-    embedding_vectors: EmbeddingVectors | None = None
     applied_downweights: List[str] = field(default_factory=list)  # Примененные множители
-    degraded_ctx: bool = False
     
     @property
     def average_score(self) -> float:
-        """Взвешенная оценка с ПРИОРИТЕТОМ на embedding модель"""
-        # ВАЖНО: Если есть meta_proba - она игнорируется здесь,
-        # т.к. используется PolicyEngine напрямую.
-        # Это свойство сохранено для фоллбэка на старую логику.
+        """
+        Взвешенная оценка из трёх фильтров.
         
-        # Проверяем доступность embedding и его уверенность
-        use_embedding = (
-            self.embedding_result 
-            and self.embedding_result.score != 0.5  # не дефолтное значение
-            and self.embedding_result.confidence > 0.0  # не ошибка
+        Новая архитектура:
+        - Keyword: 20% (явные паттерны)
+        - TF-IDF: 40% (статистика char-grams)
+        - Pattern: 40% (20 признаков + LightGBM)
+        """
+        return (
+            self.keyword_result.score * 0.20 +
+            self.tfidf_result.score * 0.40 +
+            self.pattern_result.score * 0.40
         )
-        
-        if use_embedding:
-            # EMBEDDING - ГЛАВНЫЙ ФИЛЬТР (50%)
-            # Сравнивает с реальными примерами спама, понимает контекст
-            # TF-IDF - вспомогательный (30%) - статистика из датасета
-            # Keyword - точечный (20%) - явные паттерны
-            return (
-                self.embedding_result.score * 0.50 +
-                self.tfidf_result.score * 0.30 +
-                self.keyword_result.score * 0.20
-            )
-        else:
-            # Без embedding: TF-IDF 60%, Keyword 40%
-            return (
-                self.tfidf_result.score * 0.60 +
-                self.keyword_result.score * 0.40
-            )
     
     @property
     def max_score(self) -> float:
-        scores = [self.keyword_result.score, self.tfidf_result.score]
-        if self.embedding_result:
-            scores.append(self.embedding_result.score)
-        return max(scores)
+        """Максимальная оценка среди всех фильтров"""
+        return max(
+            self.keyword_result.score,
+            self.tfidf_result.score,
+            self.pattern_result.score
+        )
     
     @property
     def all_high(self) -> bool:
+        """Проверка что все фильтры дали высокую оценку (>= 0.7)"""
         threshold = 0.7
-        high = self.keyword_result.score >= threshold and self.tfidf_result.score >= threshold
-        if self.embedding_result:
-            high = high and self.embedding_result.score >= threshold
-        return high
+        return (
+            self.keyword_result.score >= threshold and
+            self.tfidf_result.score >= threshold and
+            self.pattern_result.score >= threshold
+        )
