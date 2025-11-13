@@ -133,26 +133,13 @@ def _extract_event_confidence(analysis: AnalysisResult, decision_details: dict |
                 except (TypeError, ValueError):
                     pass
 
-    if analysis.meta_proba is not None:
-        return float(analysis.meta_proba)
+    if analysis.pattern_result is not None:
+        return float(analysis.pattern_result.score)
     return float(analysis.average_score)
 
 
 def _compact_analysis(analysis: AnalysisResult) -> AnalysisResult:
-    """Drop heavy payloads before caching analysis snapshots."""
-    embedding_result = analysis.embedding_result
-    if embedding_result and embedding_result.details:
-        pruned_details = dict(embedding_result.details)
-        pruned_details.pop("embedding", None)
-        embedding_result = replace(embedding_result, details=pruned_details)
-    
-    return replace(
-        analysis,
-        context_capsule=None,
-        user_capsule=None,
-        embedding_vectors=None,
-        embedding_result=embedding_result,
-    )
+    return analysis
 
 
 
@@ -239,53 +226,15 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     
     # Шаг 1: Анализ фильтрами с передачей Message для извлечения метаданных
     analysis = await coordinator.analyze(text, message=msg)
-    
-    # Шаг 2: Мета-классификатор
-    p_spam = None
-    meta_debug = None
-    
-    embeddings_available = (
-        analysis.embedding_vectors is not None
-        and analysis.embedding_vectors.E_msg is not None
-    )
 
-    if meta_classifier.is_ready() and embeddings_available:
-        try:
-            p_spam, meta_debug = await meta_classifier.predict_proba(text, analysis)
-            
-            if p_spam is not None:
-                LOGGER.info(
-                    f"MetaClassifier: p_spam={p_spam:.3f}, "
-                    f"sim_spam_msg={meta_debug.get('sim_spam_msg', 'N/A')}, "
-                    f"delta_msg={meta_debug.get('delta_msg', 'N/A')}"
-                )
-                
-                # Создаем новый AnalysisResult с мета-данными
-                analysis = replace(analysis, meta_proba=p_spam, meta_debug=meta_debug)
-        except Exception as e:
-            LOGGER.error(f"MetaClassifier failed: {e}", exc_info=True)
-    else:
-        if not meta_classifier.is_ready():
-            LOGGER.warning("MetaClassifier skipped: models not ready")
-        elif not embeddings_available:
-            LOGGER.warning("MetaClassifier skipped: embeddings unavailable, falling back to classic filters")
-    
-    # Шаг 3: Принятие решения (теперь возвращает action + decision_details)
     action, decision_details = policy_engine.decide_action(analysis)
     
-    # Логирование
-    if analysis.meta_proba is not None:
-        LOGGER.info(
-            f"Message from {msg.from_user.full_name}: "
-            f"p_spam={decision_details['p_spam_original']:.2f}→{decision_details['p_spam_adjusted']:.2f}, "
-            f"action={action.value}, mode={decision_details['policy_mode']}, "
-            f"downweights={len(decision_details['applied_downweights'])}"
-        )
-    else:
-        LOGGER.info(
-            f"Message from {msg.from_user.full_name}: "
-            f"avg={analysis.average_score:.2f}, action={action.value}"
-        )
+    LOGGER.info(
+        f"Message from {msg.from_user.full_name}: "
+        f"p_spam={decision_details['p_spam_original']:.2f}→{decision_details['p_spam_adjusted']:.2f}, "
+        f"action={action.value}, mode={decision_details['policy_mode']}, "
+        f"downweights={len(decision_details['applied_downweights'])}"
+    )
     
     event_id = None
     try:
@@ -301,8 +250,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 action_confidence=_extract_event_confidence(analysis, decision_details),
                 filter_keyword_score=analysis.keyword_result.score if analysis.keyword_result else None,
                 filter_tfidf_score=analysis.tfidf_result.score if analysis.tfidf_result else None,
-                filter_embedding_score=(analysis.embedding_result.score if analysis.embedding_result else None),
-                meta_debug=json.dumps(analysis.meta_debug, ensure_ascii=False, default=str) if analysis.meta_debug else None,
+                filter_pattern_score=(analysis.pattern_result.score if analysis.pattern_result else None),
+                meta_debug=json.dumps(analysis.pattern_result.details, ensure_ascii=False, default=str) if analysis.pattern_result and analysis.pattern_result.details else None,
                 source='bot',
             )
         )
@@ -509,16 +458,10 @@ async def cmd_status(update: Update, _):
     else:
         filters_status.append("📈 TF-IDF: ❌")
     
-    if embedding_filter.is_ready():
-        filters_status.append(f"🧠 Embedding: ✅ ({settings.EMBEDDING_MODE})")
+    if pattern_filter.is_ready():
+        filters_status.append("🎯 Pattern: ✅")
     else:
-        filters_status.append(f"🧠 Embedding: ❌ ({settings.EMBEDDING_MODE})")
-    
-    # Мета-классификатор статус
-    if meta_classifier.is_ready():
-        filters_status.append("🎯 MetaClassifier: ✅")
-    else:
-        filters_status.append("🎯 MetaClassifier: ❌ (not trained)")
+        filters_status.append("🎯 Pattern: ❌")
     
     await update.effective_message.reply_html(
         "<b>📊 Статус антиспам-системы</b>\n\n"
@@ -924,44 +867,33 @@ async def cmd_help(update: Update, _):
 
 async def cmd_meta_info(update: Update, _):
     _ensure_initialized()
-    """Информация о мета-классификаторе"""
     if not update.effective_user or not is_whitelisted(update.effective_user.id):
         return
     
-    info = meta_classifier.get_info()
-    
-    status_icon = "✅" if info['ready'] else "❌"
+    status_icon = "✅" if pattern_filter.is_ready() else "❌"
     
     message = (
-        f"🎯 <b>Мета-классификатор {status_icon}</b>\n\n"
-        f"<b>Статус:</b> {'Готов' if info['ready'] else 'Не обучен'}\n\n"
+        f"🎯 <b>Pattern Classifier {status_icon}</b>\n\n"
+        f"<b>Статус:</b> {'Готов' if pattern_filter.is_ready() else 'Модели не загружены'}\n\n"
     )
     
-    if info['ready']:
+    if pattern_filter.is_ready():
         message += (
             f"<b>📊 Пороги решений:</b>\n"
             f" • Notify: <code>{runtime_config.meta_notify:.2f}</code>\n"
             f" • Delete: <code>{runtime_config.meta_delete:.2f}</code>\n"
             f" • Kick: <code>{runtime_config.meta_kick:.2f}</code>\n\n"
             f"<b>🔧 Модель:</b>\n"
-            f" • Фичей: <code>{info['num_features']}</code>\n"
-            f" • Калибратор: {'✅' if info['calibrator_loaded'] else '❌'}\n"
-            f" • Центроиды: {'✅' if info['centroids_loaded'] else '❌'}\n"
-        )
-        
-        if 'logreg_date' in info:
-            message += f" • Дата обучения: <code>{info['logreg_date'][:10]}</code>\n"
-        
-        message += (
-            f"\n<b>📁 Путь:</b> <code>{info['models_dir']}</code>\n\n"
-            f"<i>Фичи: {', '.join(info['feature_names'][:5])}...</i>"
+            f" • LightGBM + IsotonicRegression\n"
+            f" • Features: 20 (keyword, tfidf, patterns, metadata)\n"
+            f" • Models: models/pattern_lgbm.pkl, pattern_calibrator.pkl\n"
         )
     else:
         message += (
             "<b>⚠️ Модель не обучена</b>\n\n"
             "Запустите обучение:\n"
-            "<code>python scripts/train_meta.py</code>\n\n"
-            f"Путь к артефактам: <code>{info['models_dir']}</code>"
+            "<code>python scripts/train_pattern.py</code>\n\n"
+            "Путь к артефактам: <code>models/</code>"
         )
     
     await update.effective_message.reply_html(message)

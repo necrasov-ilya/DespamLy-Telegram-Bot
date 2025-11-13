@@ -74,7 +74,7 @@ class _ModerationStore(_SQLiteRepoBase, ModerationStore):
             data.action_confidence,
             data.filter_keyword_score,
             data.filter_tfidf_score,
-            data.filter_embedding_score,
+            data.filter_pattern_score,
             data.meta_debug,
             data.source,
         )
@@ -85,7 +85,7 @@ class _ModerationStore(_SQLiteRepoBase, ModerationStore):
                 INSERT INTO moderation_events (
                     chat_id, message_id, user_id, username, text_hash, text_length,
                     action, action_confidence, filter_keyword_score,
-                    filter_tfidf_score, filter_embedding_score, meta_debug, source
+                    filter_tfidf_score, filter_pattern_score, meta_debug, source
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 payload,
@@ -99,7 +99,7 @@ class _ModerationStore(_SQLiteRepoBase, ModerationStore):
                 SELECT
                     id, created_at, chat_id, message_id, user_id, username, text_hash,
                     text_length, action, action_confidence, filter_keyword_score,
-                    filter_tfidf_score, filter_embedding_score, meta_debug, source
+                    filter_tfidf_score, filter_pattern_score, meta_debug, source
                 FROM moderation_events
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -122,7 +122,7 @@ class _ModerationStore(_SQLiteRepoBase, ModerationStore):
                 action_confidence=row["action_confidence"],
                 filter_keyword_score=row["filter_keyword_score"],
                 filter_tfidf_score=row["filter_tfidf_score"],
-                filter_embedding_score=row["filter_embedding_score"],
+                filter_pattern_score=row["filter_pattern_score"],
                 meta_debug=row["meta_debug"],
                 source=row["source"],
             )

@@ -17,7 +17,7 @@ class ModerationEventInput:
     action_confidence: float | None
     filter_keyword_score: float | None
     filter_tfidf_score: float | None
-    filter_embedding_score: float | None
+    filter_pattern_score: float | None
     meta_debug: str | None
     source: str = "bot"
 
@@ -36,7 +36,7 @@ class ModerationEvent:
     action_confidence: float | None
     filter_keyword_score: float | None
     filter_tfidf_score: float | None
-    filter_embedding_score: float | None
+    filter_pattern_score: float | None
     meta_debug: str | None
     source: str
 

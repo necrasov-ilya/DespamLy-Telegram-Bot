@@ -80,6 +80,12 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         );
         """,
     ),
+    (
+        2,
+        """
+        ALTER TABLE moderation_events RENAME COLUMN filter_embedding_score TO filter_pattern_score;
+        """,
+    ),
 )
 
 __all__ = ["MIGRATIONS"]
