@@ -13,12 +13,13 @@ from bot.handlers import register_handlers
 LOGGER = get_logger(__name__)
 
 BOT_COMMANDS: List[BotCommand] = [
-    BotCommand("start", "Начать работу с ботом"),
-    BotCommand("help", "Краткая справка"),
-    BotCommand("status", "Статус модели (whitelist)"),
-    BotCommand("retrain", "Ручное переобучение (whitelist)"),
-    BotCommand("debug", "Детали сообщения по ID (whitelist)"),
-    BotCommand("meta_info", "Инфо о мета-классификаторе (whitelist)"),  # NEW
+    # Команды для владельцев (в ЛС)
+    BotCommand("mychats", "Управление чатами"),
+    
+    # Команды для групп
+    BotCommand("status", "Статус защиты чата"),
+    BotCommand("pause", "Приостановить защиту"),
+    BotCommand("resume", "Возобновить защиту"),
 ]
 
 
@@ -43,8 +44,9 @@ def run_polling() -> None:
     app.post_init = post_init
 
     LOGGER.info("Запуск polling...")
+    # ВАЖНО: my_chat_member нужен для ChatMemberHandler (автодобавление в чаты)
     app.run_polling(
-        allowed_updates=["message", "callback_query"],
+        allowed_updates=["message", "callback_query", "my_chat_member"],
     )
     LOGGER.info("Бот завершил работу.")
 

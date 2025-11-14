@@ -14,11 +14,11 @@ if (ROOT_DIR / "telegram-antispam-bot").exists():
 
 from config.config import settings
 
-if not settings.BOT_TOKEN or not settings.MODERATOR_CHAT_ID:
-    LOGGER.critical(
-        "Не заданы BOT_TOKEN и/или MODERATOR_CHAT_ID в .env — прекращаю работу."
-    )
+if not settings.BOT_TOKEN:
+    LOGGER.critical("Не задан BOT_TOKEN в .env — прекращаю работу.")
     sys.exit(2)
+
+# MODERATOR_CHAT_ID больше не требуется (мультичат архитектура с /mychats)
 
 from bot.app import run_polling
 

@@ -169,3 +169,42 @@ class FilterCoordinator:
             self.tfidf_filter.is_ready() and
             self.pattern_filter.is_ready()
         )
+
+
+# Singleton instance
+_coordinator_instance: Optional[FilterCoordinator] = None
+
+
+def get_coordinator() -> FilterCoordinator:
+    """
+    Получить singleton-экземпляр FilterCoordinator.
+    
+    Инициализирует все фильтры при первом вызове.
+    
+    Returns:
+        FilterCoordinator с загруженными моделями
+    """
+    global _coordinator_instance
+    
+    if _coordinator_instance is None:
+        from filters.keyword import KeywordFilter
+        from filters.tfidf import TfidfFilter
+        
+        LOGGER.info("Инициализация FilterCoordinator...")
+        
+        keyword_filter = KeywordFilter()
+        tfidf_filter = TfidfFilter()
+        pattern_filter = PatternClassifier()
+        
+        _coordinator_instance = FilterCoordinator(
+            keyword_filter=keyword_filter,
+            tfidf_filter=tfidf_filter,
+            pattern_filter=pattern_filter
+        )
+        
+        if _coordinator_instance.is_ready():
+            LOGGER.info("✅ FilterCoordinator готов к работе")
+        else:
+            LOGGER.warning("⚠️ FilterCoordinator не полностью готов (некоторые модели не загружены)")
+    
+    return _coordinator_instance
