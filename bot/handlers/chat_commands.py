@@ -228,44 +228,44 @@ async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     test_text = " ".join(context.args)
     
     from core.coordinator import get_coordinator
-    from core.types import MessageData
     
     coordinator = get_coordinator()
     
-    msg_data = MessageData(
-        text=test_text,
-        user_id=999999999,
-        username="test_user",
-        chat_id=update.effective_chat.id,
-    )
-    
     try:
-        result = coordinator.check_message(msg_data)
-        
-        verdict_emoji = {
-            "allow": "✅",
-            "notify": "⚠️",
-            "delete": "🗑️",
-            "kick": "⛔",
-        }.get(result.verdict, "❓")
-        
-        verdict_text = {
-            "allow": "Разрешить",
-            "notify": "Уведомить владельца",
-            "delete": "Удалить сообщение",
-            "kick": "Удалить + забанить",
-        }.get(result.verdict, "Неизвестно")
+        result = await coordinator.analyze(test_text, message=None)
         
         scores_text = "\n".join([
-            f"• {name}: {score:.2%}"
-            for name, score in result.scores.items()
+            f"• Keyword: {result.keyword_result.score:.2%}",
+            f"• TF-IDF: {result.tfidf_result.score:.2%}",
+            f"• Pattern: {result.pattern_result.score:.2%}",
         ])
+        
+        avg_score = result.average_score
+        max_score = result.max_score
+        
+        storage = get_storage()
+        chat_config = storage.chat_configs.get_by_chat_id(update.effective_chat.id)
+        
+        verdict_emoji = "✅"
+        verdict_text = "Разрешить (проходит все проверки)"
+        
+        if chat_config:
+            if chat_config.policy_mode == "delete_and_ban" and avg_score >= chat_config.meta_kick:
+                verdict_emoji = "⛔"
+                verdict_text = f"Удалить + забанить (≥{chat_config.meta_kick:.0%})"
+            elif avg_score >= chat_config.meta_delete:
+                verdict_emoji = "🗑️"
+                verdict_text = f"Удалить сообщение (≥{chat_config.meta_delete:.0%})"
+            elif avg_score >= 0.65:
+                verdict_emoji = "⚠️"
+                verdict_text = "Уведомить владельца (≥65%)"
         
         message = (
             f"🧪 <b>Результат тестирования</b>\n\n"
             f"<b>Текст:</b>\n<code>{test_text[:200]}</code>\n\n"
             f"<b>Verdict:</b> {verdict_emoji} {verdict_text}\n"
-            f"<b>Confidence:</b> {result.confidence:.2%}\n\n"
+            f"<b>Средняя оценка:</b> {avg_score:.2%}\n"
+            f"<b>Максимум:</b> {max_score:.2%}\n\n"
             f"<b>Оценки фильтров:</b>\n{scores_text}\n\n"
             f"<i>Режим тестирования - действия не выполняются</i>"
         )
@@ -274,8 +274,8 @@ async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         
         LOGGER.info(
             f"Test command used in chat {update.effective_chat.id} "
-            f"by admin {update.effective_user.id}: verdict={result.verdict}, "
-            f"confidence={result.confidence:.2f}"
+            f"by admin {update.effective_user.id}: avg={avg_score:.2f}, "
+            f"max={max_score:.2f}"
         )
         
     except Exception as e:
