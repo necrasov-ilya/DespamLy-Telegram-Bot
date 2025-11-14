@@ -405,6 +405,53 @@ class _ChatConfigStore(_PostgresRepoBase, ChatConfigStore):
             )
             for row in rows
         ]
+    
+    def get_by_moderator_channel_id(self, channel_id: int) -> Sequence[ChatConfig]:
+        """Найти все чаты, использующие этот канал как модераторский."""
+        with self._cursor() as cur:
+            cur.execute(
+                """
+                SELECT chat_id, chat_title, chat_type, owner_id, policy_mode,
+                       meta_delete, meta_kick, is_active, whitelist, moderator_channel_id,
+                       created_at, updated_at
+                FROM chat_configs
+                WHERE moderator_channel_id = %s
+                """,
+                (channel_id,),
+            )
+            rows = cur.fetchall()
+
+        return [
+            ChatConfig(
+                chat_id=row["chat_id"],
+                chat_title=row["chat_title"],
+                chat_type=row["chat_type"],
+                owner_id=row["owner_id"],
+                policy_mode=row["policy_mode"],
+                meta_delete=row["meta_delete"],
+                meta_kick=row["meta_kick"],
+                is_active=row["is_active"],
+                whitelist=json.loads(row["whitelist"]) if row["whitelist"] else None,
+                moderator_channel_id=row["moderator_channel_id"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+            for row in rows
+        ]
+    
+    def was_moderator_channel(self, channel_id: int) -> bool:
+        """Проверить, использовался ли этот ID как модераторский канал раньше."""
+        with self._cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) as count
+                FROM chat_configs
+                WHERE moderator_channel_id = %s
+                """,
+                (channel_id,),
+            )
+            row = cur.fetchone()
+            return row["count"] > 0 if row else False
 
     def upsert(self, config: ChatConfigInput) -> None:
         whitelist_json = json.dumps(config.whitelist) if config.whitelist else None

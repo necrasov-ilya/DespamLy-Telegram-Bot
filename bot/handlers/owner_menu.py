@@ -12,8 +12,15 @@ LOGGER = get_logger(__name__)
 
 
 async def cmd_mychats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show list of owner's chats (works both in DM and groups)."""
+    """Show list of owner's chats. Works only in private messages."""
     if not update.effective_user or not update.effective_message:
+        return
+    
+    if update.effective_message.chat.type != "private":
+        await update.effective_message.reply_text(
+            "❌ Эта команда работает только в личных сообщениях со мной.\n\n"
+            "Напиши мне в ЛС: @" + context.bot.username
+        )
         return
     
     owner_id = update.effective_user.id

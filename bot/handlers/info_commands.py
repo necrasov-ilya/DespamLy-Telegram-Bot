@@ -51,9 +51,8 @@ async def cmd_primer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         
         "<b>1. ML-детекция спама</b>\n"
-        "• Keyword Filter — явные паттерны (URL, телефоны)\n"
-        "• TF-IDF Filter — статистический анализ\n"
-        "• Pattern Classifier — 20 признаков + LightGBM\n"
+        "• Автоматическое обнаружение спама с помощью машинного обучения\n"
+        "• Анализ текста, ссылок, телефонов и паттернов\n"
         "• Точность: >95%\n\n"
         
         "<b>2. Режимы работы</b>\n"

@@ -405,7 +405,7 @@ async def on_confirm_delete_callback(update: Update, context: ContextTypes.DEFAU
 async def on_setup_moderator_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Callback: setup_moderator:<chat_id>
-    Инструкция по настройке модераторского канала.
+    Генерация токена для привязки модераторской группы.
     """
     query = update.callback_query
     if not query:
@@ -414,6 +414,7 @@ async def on_setup_moderator_callback(update: Update, context: ContextTypes.DEFA
     await query.answer()
     
     chat_id = int(query.data.split(":")[1])
+    owner_id = query.from_user.id
     
     storage = get_storage()
     chat_config = storage.chat_configs.get_by_chat_id(chat_id)
@@ -422,31 +423,36 @@ async def on_setup_moderator_callback(update: Update, context: ContextTypes.DEFA
         await query.edit_message_text("❌ Конфигурация чата не найдена.")
         return
     
-    if not context.user_data:
-        context.user_data = {}
-    context.user_data["awaiting_moderator_channel_for"] = chat_id
+    # Генерируем криптографически стойкий токен
+    import secrets
+    import time
+    token = secrets.token_urlsafe(12)  # 96 бит энтропии
+    
+    # Сохраняем токен в bot_data
+    if "moderator_tokens" not in context.bot_data:
+        context.bot_data["moderator_tokens"] = {}
+    
+    context.bot_data["moderator_tokens"][token] = {
+        "chat_id": chat_id,
+        "owner_id": owner_id,
+        "expires_at": time.time() + 900  # 15 минут
+    }
     
     message = (
-        "📢 <b>Настройка модераторского канала</b>\n\n"
-        "Модераторский канал — это приватный канал для уведомлений о спаме.\n\n"
+        "📢 <b>Настройка модераторской группы</b>\n\n"
+        "Модераторская группа — это отдельный чат, куда я буду отправлять все уведомления о спаме.\n\n"
         "<b>Шаги настройки:</b>\n\n"
-        "1️⃣ Создай новый <b>приватный канал</b> (не группу!)\n"
-        "   • Telegram → Новый канал\n"
-        "   • Назови его, например: \"DespamLy: {chat_title}\"\n"
-        "   • Сделай канал приватным\n\n"
-        "2️⃣ Добавь этого бота (@{bot_username}) в канал как <b>администратора</b>\n"
-        "   • Канал → Администраторы → Добавить администратора\n"
-        "   • Выбери @{bot_username}\n"
-        "   • Дай право \"Публиковать сообщения\"\n\n"
-        "3️⃣ Перешли боту <b>любое сообщение</b> из этого канала\n"
-        "   • Открой канал\n"
-        "   • Нажми на любое сообщение → \"Переслать\"\n"
-        "   • Перешли мне в личные сообщения\n\n"
-        "Я автоматически определю ID канала и сохраню настройку.\n\n"
+        "1️⃣ Создай новую группу или используй существующую\n"
+        "2️⃣ Добавь меня (@{bot_username}) в эту группу\n"
+        "3️⃣ В этой группе отправь команду:\n\n"
+        "<code>/link_moderator {token}</code>\n\n"
+        "Скопируй команду выше целиком (нажми на неё).\n\n"
+        "⏱ Токен действителен <b>15 минут</b>\n"
+        "🔒 Токен одноразовый и привязан к тебе\n\n"
         "<i>После настройки тебе станут доступны все режимы работы.</i>"
     ).format(
-        chat_title=chat_config.chat_title or "Твой чат",
-        bot_username=context.bot.username
+        bot_username=context.bot.username,
+        token=token
     )
     
     keyboard = [
@@ -460,89 +466,4 @@ async def on_setup_moderator_callback(update: Update, context: ContextTypes.DEFA
     )
 
 
-async def on_forwarded_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Обработка пересланного сообщения для настройки модераторского канала.
-    """
-    message = update.effective_message
-    if not message or not message.forward_origin:
-        return
-    
-    if message.chat.type != "private":
-        return
-    
-    user_id = update.effective_user.id
-    
-    if not context.user_data or "awaiting_moderator_channel_for" not in context.user_data:
-        return
-    
-    chat_id = context.user_data.get("awaiting_moderator_channel_for")
-    if not chat_id:
-        return
-    
-    storage = get_storage()
-    chat_config = storage.chat_configs.get_by_chat_id(chat_id)
-    
-    if not chat_config:
-        await message.reply_text("❌ Конфигурация чата не найдена.")
-        del context.user_data["awaiting_moderator_channel_for"]
-        return
-    
-    if chat_config.owner_id != user_id:
-        await message.reply_text("❌ Только владелец чата может настроить модераторский канал.")
-        del context.user_data["awaiting_moderator_channel_for"]
-        return
-    
-    from telegram.constants import MessageOriginType
-    if message.forward_origin.type != MessageOriginType.CHANNEL:
-        await message.reply_text(
-            "❌ Это не сообщение из канала.\n\n"
-            "Перешли сообщение именно из <b>канала</b>, а не из группы или от пользователя.",
-            parse_mode=ParseMode.HTML
-        )
-        return
-    
-    channel_id = message.forward_origin.chat.id
-    channel_title = message.forward_origin.chat.title
-    
-    try:
-        bot_member = await context.bot.get_chat_member(channel_id, context.bot.id)
-        if bot_member.status not in ("administrator", "creator"):
-            await message.reply_text(
-                "❌ Бот не является администратором этого канала.\n\n"
-                "Добавь бота в канал как администратора с правом \"Публиковать сообщения\".",
-                parse_mode=ParseMode.HTML
-            )
-            return
-        
-        if not bot_member.can_post_messages:
-            await message.reply_text(
-                "❌ У бота нет права публиковать сообщения в канале.\n\n"
-                "Дай боту право \"Публиковать сообщения\" в настройках администратора.",
-                parse_mode=ParseMode.HTML
-            )
-            return
-    except Exception as e:
-        LOGGER.error(f"Failed to check bot permissions in channel {channel_id}: {e}")
-        await message.reply_text(
-            "❌ Не удалось проверить права бота в канале.\n\n"
-            "Убедись, что бот добавлен в канал как администратор.",
-            parse_mode=ParseMode.HTML
-        )
-        return
-    
-    storage.chat_configs.update(chat_id, moderator_channel_id=channel_id)
-    
-    del context.user_data["awaiting_moderator_channel_for"]
-    
-    await message.reply_text(
-        f"✅ <b>Модераторский канал настроен!</b>\n\n"
-        f"<b>Канал:</b> {channel_title}\n"
-        f"<b>ID:</b> <code>{channel_id}</code>\n\n"
-        f"Теперь все уведомления о спаме будут приходить в этот канал.\n"
-        f"Тебе стали доступны все режимы работы.\n\n"
-        f"Используй /mychats для управления настройками.",
-        parse_mode=ParseMode.HTML
-    )
-    
-    LOGGER.info(f"Moderator channel {channel_id} set for chat {chat_id} by user {user_id}")
+

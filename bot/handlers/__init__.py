@@ -13,7 +13,12 @@ from telegram.ext import (
     filters,
 )
 
-from .setup import on_my_chat_member
+from .setup import (
+    on_my_chat_member,
+    on_activate_initial_callback,
+    on_restore_config_callback,
+    on_reset_config_callback,
+)
 from .moderation import on_message
 from .owner_menu import (
     cmd_mychats,
@@ -35,9 +40,8 @@ from .owner_actions import (
     on_delete_chat_callback,
     on_confirm_delete_callback,
     on_setup_moderator_callback,
-    on_forwarded_message,
 )
-from .chat_commands import cmd_status, cmd_pause, cmd_resume, cmd_test
+from .chat_commands import cmd_status, cmd_pause, cmd_resume, cmd_test, cmd_link_moderator
 from .info_commands import cmd_start, cmd_primer, cmd_help
 
 from utils.logger import get_logger
@@ -74,10 +78,16 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("pause", cmd_pause))
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("test", cmd_test))
+    app.add_handler(CommandHandler("link_moderator", cmd_link_moderator))
     
     LOGGER.info("Registered: CommandHandlers")
     
     # 3. Callback handlers (от специфичных к общим)
+    
+    # Setup callbacks
+    app.add_handler(CallbackQueryHandler(on_activate_initial_callback, pattern=r"^activate_initial:-?\d+$"))
+    app.add_handler(CallbackQueryHandler(on_restore_config_callback, pattern=r"^restore_config:-?\d+$"))
+    app.add_handler(CallbackQueryHandler(on_reset_config_callback, pattern=r"^reset_config:-?\d+$"))
     
     # Owner menu callbacks
     app.add_handler(CallbackQueryHandler(on_chat_menu_callback, pattern=r"^chat_menu:-?\d+$"))
@@ -101,16 +111,7 @@ def register_handlers(app: Application) -> None:
     
     LOGGER.info("Registered: CallbackQueryHandlers")
     
-    # 4. Forwarded message handler (для настройки модераторского канала)
-    app.add_handler(
-        MessageHandler(
-            filters.FORWARDED & filters.ChatType.PRIVATE,
-            on_forwarded_message
-        )
-    )
-    LOGGER.info("Registered: MessageHandler (forwarded messages)")
-    
-    # 5. Message handler (должен быть последним - ловит все текстовые сообщения)
+    # 4. Message handler (должен быть последним - ловит все текстовые сообщения)
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
