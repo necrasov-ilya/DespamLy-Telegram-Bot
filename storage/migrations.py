@@ -120,6 +120,13 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         CREATE INDEX IF NOT EXISTS idx_chat_daily_stats_date ON chat_daily_stats(date);
         """,
     ),
+    (
+        4,
+        """
+        -- Add moderator_channel_id to chat_configs
+        ALTER TABLE chat_configs ADD COLUMN moderator_channel_id BIGINT;
+        """,
+    ),
 )
 
 __all__ = ["MIGRATIONS"]

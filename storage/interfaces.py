@@ -92,6 +92,7 @@ class ChatConfig:
     meta_kick: float
     is_active: bool
     whitelist: list[str] | None
+    moderator_channel_id: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -107,6 +108,7 @@ class ChatConfigInput:
     meta_kick: float = 0.95
     is_active: bool = False
     whitelist: list[str] | None = None
+    moderator_channel_id: int | None = None
 
 
 @dataclass(slots=True)

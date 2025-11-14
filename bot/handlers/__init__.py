@@ -34,8 +34,11 @@ from .owner_actions import (
     on_stats_callback,
     on_delete_chat_callback,
     on_confirm_delete_callback,
+    on_setup_moderator_callback,
+    on_forwarded_message,
 )
 from .chat_commands import cmd_status, cmd_pause, cmd_resume, cmd_test
+from .info_commands import cmd_start, cmd_primer, cmd_help
 
 from utils.logger import get_logger
 
@@ -58,6 +61,11 @@ def register_handlers(app: Application) -> None:
     LOGGER.info("Registered: ChatMemberHandler (setup)")
     
     # 2. Commands
+    # Info commands (работают везде)
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("primer", cmd_primer))
+    app.add_handler(CommandHandler("help", cmd_help))
+    
     # Owner commands (работают в ЛС)
     app.add_handler(CommandHandler("mychats", cmd_mychats))
     
@@ -89,10 +97,20 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(on_stats_callback, pattern=r"^stats:-?\d+$"))
     app.add_handler(CallbackQueryHandler(on_delete_chat_callback, pattern=r"^delete_chat:-?\d+$"))
     app.add_handler(CallbackQueryHandler(on_confirm_delete_callback, pattern=r"^confirm_delete:-?\d+$"))
+    app.add_handler(CallbackQueryHandler(on_setup_moderator_callback, pattern=r"^setup_moderator:-?\d+$"))
     
     LOGGER.info("Registered: CallbackQueryHandlers")
     
-    # 4. Message handler (должен быть последним - ловит все текстовые сообщения)
+    # 4. Forwarded message handler (для настройки модераторского канала)
+    app.add_handler(
+        MessageHandler(
+            filters.FORWARDED & filters.ChatType.PRIVATE,
+            on_forwarded_message
+        )
+    )
+    LOGGER.info("Registered: MessageHandler (forwarded messages)")
+    
+    # 5. Message handler (должен быть последним - ловит все текстовые сообщения)
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,

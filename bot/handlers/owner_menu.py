@@ -12,15 +12,8 @@ LOGGER = get_logger(__name__)
 
 
 async def cmd_mychats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show list of owner's chats (DM only)."""
+    """Show list of owner's chats (works both in DM and groups)."""
     if not update.effective_user or not update.effective_message:
-        return
-    
-    if update.effective_message.chat.type != "private":
-        await update.effective_message.reply_text(
-            "❌ Эта команда работает только в личных сообщениях.\n"
-            "Напиши мне в ЛС: @YourBotUsername"
-        )
         return
     
     owner_id = update.effective_user.id
@@ -114,14 +107,17 @@ async def on_chat_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         "notify_only": "🔍 Только уведомления",
     }.get(chat_config.policy_mode, "❓ Неизвестно")
     
+    mod_channel = "✅ Настроен" if chat_config.moderator_channel_id else "❌ Не настроен"
+    
     message = (
         f"⚙️ <b>Настройки чата</b>\n"
         f"<b>Название:</b> {chat_config.chat_title or 'Неизвестно'}\n"
         f"<b>Статус:</b> {status}\n"
-        f"<b>Режим:</b> {mode_name}\n\n"
+        f"<b>Режим:</b> {mode_name}\n"
+        f"<b>Модераторский канал:</b> {mod_channel}\n\n"
         f"<b>Пороги:</b>\n"
-        f" • Удаление: {chat_config.meta_delete:.2f}\n"
-        f" • Бан: {chat_config.meta_kick:.2f}\n\n"
+        f" • Удаление: {chat_config.meta_delete:.0%}\n"
+        f" • Бан: {chat_config.meta_kick:.0%}\n\n"
         f"<b>Whitelist:</b> {len(chat_config.whitelist) if chat_config.whitelist else 0} пользователей"
     )
     
@@ -139,6 +135,16 @@ async def on_chat_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     keyboard.append([
         InlineKeyboardButton("🔄 Изменить режим", callback_data=f"change_mode:{chat_id}")
     ])
+    
+    if not chat_config.moderator_channel_id:
+        keyboard.append([
+            InlineKeyboardButton("📢 Настроить модераторский канал", callback_data=f"setup_moderator:{chat_id}")
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton("📢 Изменить модераторский канал", callback_data=f"setup_moderator:{chat_id}")
+        ])
+    
     keyboard.append([
         InlineKeyboardButton("⭐ Управление whitelist", callback_data=f"whitelist_menu:{chat_id}")
     ])
@@ -213,6 +219,15 @@ async def on_change_mode_callback(update: Update, context: ContextTypes.DEFAULT_
     
     chat_id = int(query.data.split(":")[1])
     
+    storage = get_storage()
+    chat_config = storage.chat_configs.get_by_chat_id(chat_id)
+    
+    if not chat_config:
+        await query.edit_message_text("❌ Конфигурация чата не найдена.")
+        return
+    
+    has_channel = chat_config.moderator_channel_id is not None
+    
     message = (
         "🔄 <b>Выбери режим защиты:</b>\n\n"
         "<b>🗑️ Удаление спама</b> (рекомендуется)\n"
@@ -223,10 +238,19 @@ async def on_change_mode_callback(update: Update, context: ContextTypes.DEFAULT_
         "Не удаляет, только отправляет уведомления"
     )
     
+    if not has_channel:
+        message += "\n\n⚠️ <i>Режимы с баном и уведомлениями требуют настройки модераторского канала</i>"
+    
     keyboard = [
         [InlineKeyboardButton("🗑️ Удаление спама", callback_data=f"set_mode:{chat_id}:delete_only")],
-        [InlineKeyboardButton("⛔ Удаление + бан", callback_data=f"set_mode:{chat_id}:delete_and_ban")],
-        [InlineKeyboardButton("🔍 Только уведомления", callback_data=f"set_mode:{chat_id}:notify_only")],
+        [InlineKeyboardButton(
+            "🔒 Удаление + бан" if not has_channel else "⛔ Удаление + бан",
+            callback_data=f"set_mode:{chat_id}:delete_and_ban"
+        )],
+        [InlineKeyboardButton(
+            "🔒 Только уведомления" if not has_channel else "🔍 Только уведомления",
+            callback_data=f"set_mode:{chat_id}:notify_only"
+        )],
         [InlineKeyboardButton("◀️ Назад", callback_data=f"chat_menu:{chat_id}")],
     ]
     
@@ -243,13 +267,24 @@ async def on_set_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if not query:
         return
     
-    await query.answer()
-    
     parts = query.data.split(":")
     chat_id = int(parts[1])
     new_mode = parts[2]
     
     storage = get_storage()
+    
+    chat_config = storage.chat_configs.get_by_chat_id(chat_id)
+    if not chat_config:
+        await query.answer("❌ Конфигурация чата не найдена", show_alert=True)
+        return
+    
+    if new_mode in ("delete_and_ban", "notify_only") and not chat_config.moderator_channel_id:
+        await query.answer(
+            "⚠️ Этот режим требует настройки модераторского канала.\n\n"
+            "Вернитесь в меню чата и нажмите '📢 Настроить модераторский канал'",
+            show_alert=True
+        )
+        return
     
     try:
         storage.chat_configs.update(chat_id, policy_mode=new_mode)

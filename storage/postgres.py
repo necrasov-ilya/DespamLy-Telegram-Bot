@@ -346,7 +346,7 @@ class _ChatConfigStore(_PostgresRepoBase, ChatConfigStore):
             cur.execute(
                 """
                 SELECT chat_id, chat_title, chat_type, owner_id, policy_mode,
-                       meta_delete, meta_kick, is_active, whitelist,
+                       meta_delete, meta_kick, is_active, whitelist, moderator_channel_id,
                        created_at, updated_at
                 FROM chat_configs
                 WHERE chat_id = %s
@@ -368,6 +368,7 @@ class _ChatConfigStore(_PostgresRepoBase, ChatConfigStore):
             meta_kick=row["meta_kick"],
             is_active=row["is_active"],
             whitelist=json.loads(row["whitelist"]) if row["whitelist"] else None,
+            moderator_channel_id=row["moderator_channel_id"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -377,7 +378,7 @@ class _ChatConfigStore(_PostgresRepoBase, ChatConfigStore):
             cur.execute(
                 """
                 SELECT chat_id, chat_title, chat_type, owner_id, policy_mode,
-                       meta_delete, meta_kick, is_active, whitelist,
+                       meta_delete, meta_kick, is_active, whitelist, moderator_channel_id,
                        created_at, updated_at
                 FROM chat_configs
                 WHERE owner_id = %s
@@ -398,6 +399,7 @@ class _ChatConfigStore(_PostgresRepoBase, ChatConfigStore):
                 meta_kick=row["meta_kick"],
                 is_active=row["is_active"],
                 whitelist=json.loads(row["whitelist"]) if row["whitelist"] else None,
+                moderator_channel_id=row["moderator_channel_id"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
             )
@@ -412,9 +414,9 @@ class _ChatConfigStore(_PostgresRepoBase, ChatConfigStore):
                 """
                 INSERT INTO chat_configs(
                     chat_id, chat_title, chat_type, owner_id, policy_mode,
-                    meta_delete, meta_kick, is_active, whitelist
+                    meta_delete, meta_kick, is_active, whitelist, moderator_channel_id
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(chat_id) DO UPDATE SET
                     chat_title = EXCLUDED.chat_title,
                     chat_type = EXCLUDED.chat_type,
@@ -424,6 +426,7 @@ class _ChatConfigStore(_PostgresRepoBase, ChatConfigStore):
                     meta_kick = EXCLUDED.meta_kick,
                     is_active = EXCLUDED.is_active,
                     whitelist = EXCLUDED.whitelist,
+                    moderator_channel_id = EXCLUDED.moderator_channel_id,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (
@@ -436,6 +439,7 @@ class _ChatConfigStore(_PostgresRepoBase, ChatConfigStore):
                     config.meta_kick,
                     config.is_active,
                     whitelist_json,
+                    config.moderator_channel_id,
                 ),
             )
 
