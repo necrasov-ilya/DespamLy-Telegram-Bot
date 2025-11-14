@@ -1,119 +1,63 @@
-# LifeMart_Safety/config/config.py
-"""
-Модуль конфигурации проекта «LifeMart Safety Bot».
-
-▪️ Загружает переменные окружения из файла .env (в корне репозитория).
-▪️ Собирает типизированный контейнер Settings, доступный как singleton `settings`.
-"""
+"""Configuration module for DespamLy antispam bot."""
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 
 from dotenv import load_dotenv
 
-# ───────────────────────────────
-#  Загрузка .env
-# ───────────────────────────────
 ROOT_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(ROOT_DIR / ".env")           # .env должен лежать в корне проекта
+load_dotenv(ROOT_DIR / ".env")
 
-# ───────────────────────────────
-#  Типизированный контейнер
-# ───────────────────────────────
+
 @dataclass(frozen=True)
 class Settings:
+    """Application settings loaded from environment variables."""
+    
     BOT_TOKEN: str
-    MODERATOR_CHAT_ID: int
-    WHITELIST_USER_IDS: List[int]
     
-    POLICY_MODE: str
+    META_NOTIFY: float = 0.65
+    META_DELETE: float = 0.85
+    META_KICK: float = 0.95
     
-    META_NOTIFY: float
-    META_DELETE: float
-    META_KICK: float
-    
-    META_DOWNWEIGHT_ANNOUNCEMENT: float
-    META_DOWNWEIGHT_REPLY_TO_STAFF: float
-    META_DOWNWEIGHT_WHITELIST: float
-    META_DOWNWEIGHT_BRAND: float
-    
-    RETRAIN_THRESHOLD: int
-    ANNOUNCE_BLOCKS: bool
+    META_DOWNWEIGHT_ADMIN: float = 0.90
+    META_DOWNWEIGHT_REPLY_TO_STAFF: float = 0.90
+    META_DOWNWEIGHT_WHITELIST: float = 0.85
+    META_DOWNWEIGHT_BRAND: float = 0.70
+    META_DOWNWEIGHT_ANNOUNCEMENT: float = 0.85
     
     LOG_LEVEL: str = "INFO"
     DETAILED_DEBUG_INFO: bool = False
 
 
-# ───────────────────────────────
-#  Парс вспомогательных полей
-# ───────────────────────────────
-def _parse_int_list(raw: str | None) -> List[int]:
-    if not raw:
-        return []
-    return [int(x.strip()) for x in raw.split(",") if x.strip()]
-
-
-def _str_to_bool(raw: str | None, *, default: bool = True) -> bool:
+def _str_to_bool(raw: str | None, *, default: bool = False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-# ───────────────────────────────
-#  Сборка Settings
-# ───────────────────────────────
 def _build_settings() -> Settings:
-    try:
-        bot_token = os.environ["BOT_TOKEN"]
-        mod_chat_id = int(os.environ["MODERATOR_CHAT_ID"])
-    except KeyError as miss:
-        raise RuntimeError(f"Переменная {miss.args[0]} не задана в .env") from None
-
-    whitelist = _parse_int_list(os.environ.get("WHITELIST_USER_IDS"))
+    bot_token = os.environ.get("BOT_TOKEN")
+    if not bot_token:
+        raise RuntimeError("BOT_TOKEN is required in .env")
     
-    raw_policy_mode = os.environ.get("POLICY_MODE", "semi-auto")
-    policy_mode = raw_policy_mode.strip().lower().replace("_", "-")
-    if policy_mode not in {"manual", "semi-auto", "auto"}:
-        raise ValueError("POLICY_MODE должен быть manual | semi-auto | auto")
-    
-    meta_notify = float(os.environ.get("META_NOTIFY", "0.65"))
-    meta_delete = float(os.environ.get("META_DELETE", "0.85"))
-    meta_kick = float(os.environ.get("META_KICK", "0.95"))
-    
-    meta_downweight_announcement = float(os.environ.get("META_DOWNWEIGHT_ANNOUNCEMENT", "0.85"))
-    meta_downweight_reply_to_staff = float(os.environ.get("META_DOWNWEIGHT_REPLY_TO_STAFF", "0.90"))
-    meta_downweight_whitelist = float(os.environ.get("META_DOWNWEIGHT_WHITELIST", "0.85"))
-    meta_downweight_brand = float(os.environ.get("META_DOWNWEIGHT_BRAND", "0.70"))
-    
-    retrain_thr = int(os.environ.get("RETRAIN_THRESHOLD", "100"))
-    announce_blocks = _str_to_bool(os.environ.get("ANNOUNCE_BLOCKS"), default=False)
-    log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-    detailed_debug_info = _str_to_bool(os.environ.get("DETAILED_DEBUG_INFO"), default=False)
-
     return Settings(
         BOT_TOKEN=bot_token,
-        MODERATOR_CHAT_ID=mod_chat_id,
-        WHITELIST_USER_IDS=whitelist,
-        POLICY_MODE=policy_mode,
-        META_NOTIFY=meta_notify,
-        META_DELETE=meta_delete,
-        META_KICK=meta_kick,
-        META_DOWNWEIGHT_ANNOUNCEMENT=meta_downweight_announcement,
-        META_DOWNWEIGHT_REPLY_TO_STAFF=meta_downweight_reply_to_staff,
-        META_DOWNWEIGHT_WHITELIST=meta_downweight_whitelist,
-        META_DOWNWEIGHT_BRAND=meta_downweight_brand,
-        RETRAIN_THRESHOLD=retrain_thr,
-        ANNOUNCE_BLOCKS=announce_blocks,
-        LOG_LEVEL=log_level,
-        DETAILED_DEBUG_INFO=detailed_debug_info,
+        META_NOTIFY=float(os.environ.get("META_NOTIFY", "0.65")),
+        META_DELETE=float(os.environ.get("META_DELETE", "0.85")),
+        META_KICK=float(os.environ.get("META_KICK", "0.95")),
+        META_DOWNWEIGHT_ADMIN=float(os.environ.get("META_DOWNWEIGHT_ADMIN", "0.90")),
+        META_DOWNWEIGHT_REPLY_TO_STAFF=float(os.environ.get("META_DOWNWEIGHT_REPLY_TO_STAFF", "0.90")),
+        META_DOWNWEIGHT_WHITELIST=float(os.environ.get("META_DOWNWEIGHT_WHITELIST", "0.85")),
+        META_DOWNWEIGHT_BRAND=float(os.environ.get("META_DOWNWEIGHT_BRAND", "0.70")),
+        META_DOWNWEIGHT_ANNOUNCEMENT=float(os.environ.get("META_DOWNWEIGHT_ANNOUNCEMENT", "0.85")),
+        LOG_LEVEL=os.environ.get("LOG_LEVEL", "INFO").upper(),
+        DETAILED_DEBUG_INFO=_str_to_bool(os.environ.get("DETAILED_DEBUG_INFO"), default=False),
     )
 
 
-# singleton
 settings: Settings = _build_settings()
 
 __all__ = ["settings", "Settings"]

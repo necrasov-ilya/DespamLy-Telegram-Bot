@@ -1,7 +1,4 @@
-"""
-Модуль обработки входящих сообщений и детекта спама.
-Интегрируется с FilterCoordinator, PolicyEngine, RateLimiter и Notifications.
-"""
+"""Message moderation handler with spam detection."""
 from __future__ import annotations
 
 import json
@@ -63,20 +60,7 @@ def _extract_confidence(analysis: AnalysisResult) -> float:
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Основной handler входящих сообщений.
-    
-    Алгоритм:
-    1. Проверка базовых условий (текст, не ЛС)
-    2. Получение chat_config из БД
-    3. Проверка is_active и whitelist
-    4. Rate limiting check
-    5. Анализ через FilterCoordinator
-    6. Принятие решения через PolicyEngine
-    7. Выполнение действия (delete/ban/notify)
-    8. Запись в БД и отправка уведомления
-    9. Инкремент статистики
-    """
+    """Handle incoming messages and detect spam."""
     _ensure_initialized()
     
     msg: Message = update.effective_message
@@ -89,7 +73,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     
     storage = get_storage()
     
-    # Шаг 1: Получаем конфигурацию чата
     chat_config = storage.chat_configs.get_by_chat_id(msg.chat_id)
     
     if not chat_config:
@@ -100,26 +83,22 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         LOGGER.debug(f"Chat {msg.chat_id} not active, ignoring message")
         return
     
-    # Шаг 2: Проверка whitelist
     if chat_config.whitelist and msg.from_user.username:
         if msg.from_user.username in chat_config.whitelist:
             LOGGER.debug(f"User @{msg.from_user.username} in whitelist, skipping")
             return
     
-    # Шаг 3: Rate limiting check
     rate_limiter = get_rate_limiter()
     if rate_limiter.is_flood(msg.chat_id, msg.from_user.id):
         LOGGER.warning(
             f"Flood detected: chat_id={msg.chat_id}, user_id={msg.from_user.id}"
         )
-        # При флуде сразу удаляем сообщение без анализа
         try:
             await msg.delete()
         except Exception as e:
             LOGGER.error(f"Failed to delete flood message: {e}")
         return
     
-    # Шаг 4: Upsert пользователя в БД
     try:
         storage.users.upsert(
             msg.from_user.id,
@@ -129,11 +108,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         LOGGER.warning(f"Failed to upsert user: {e}")
     
     text = msg.text.strip()
-    
-    # Шаг 5: Анализ через FilterCoordinator
     analysis = await _coordinator.analyze(text, message=msg)
-    
-    # Шаг 6: Принятие решения через PolicyEngine (адаптированный)
     action = _decide_action(analysis, chat_config)
     
     LOGGER.info(
@@ -142,7 +117,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         f"action={action.value}, mode={chat_config.policy_mode}"
     )
     
-    # Инкремент статистики: messages_processed
     try:
         storage.chat_stats.increment(
             chat_config.chat_id,
@@ -152,11 +126,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     except Exception as e:
         LOGGER.warning(f"Failed to increment stats: {e}")
     
-    # Если APPROVE - ничего не делаем
     if action == Action.APPROVE:
         return
     
-    # Шаг 7: Запись события в БД
     event_id = None
     try:
         event_id = storage.events.record_event(
@@ -183,7 +155,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     except Exception as e:
         LOGGER.error(f"Failed to record event: {e}")
     
-    # Шаг 8: Выполнение действия
     spam_detected = 0
     messages_deleted = 0
     users_banned = 0
@@ -202,8 +173,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             await msg.delete()
             messages_deleted = 1
             spam_detected = 1
-            
-            # Softban (kick)
             await context.bot.ban_chat_member(msg.chat_id, msg.from_user.id)
             await context.bot.unban_chat_member(msg.chat_id, msg.from_user.id)
             users_banned = 1
@@ -232,7 +201,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         except Exception as e:
             LOGGER.warning(f"Failed to update stats: {e}")
     
-    # Шаг 9: Отправка уведомления владельцу
     if action in (Action.DELETE, Action.KICK, Action.NOTIFY):
         action_str = {
             Action.DELETE: "deleted",
@@ -258,14 +226,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 def _decide_action(analysis: AnalysisResult, chat_config: ChatConfig) -> Action:
-    """
-    Упрощённая версия PolicyEngine для per-chat конфигураций.
-    
-    Режимы:
-    - notify_only: только уведомления, никаких действий
-    - delete_only: удаление при meta_score >= meta_delete
-    - delete_and_ban: удаление + softban при meta_score >= meta_kick
-    """
+    """Decide action based on spam score and chat policy mode."""
     meta_score = _extract_confidence(analysis)
     
     if chat_config.policy_mode == "notify_only":
