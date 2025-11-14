@@ -1,7 +1,4 @@
-"""
-Автоматическая регистрация чатов при добавлении бота.
-Обрабатывает событие on_my_chat_member.
-"""
+"""Automatic chat registration when bot is added."""
 from __future__ import annotations
 
 from telegram import Update
@@ -15,11 +12,7 @@ LOGGER = get_logger(__name__)
 
 
 async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Обработка добавления/удаления бота из чата.
-    При добавлении: создаёт chat_config с is_active=False.
-    При удалении: деактивирует chat_config.
-    """
+    """Handle bot being added to or removed from a chat."""
     if not update.my_chat_member:
         return
     
@@ -34,7 +27,6 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     storage = get_storage()
     owner_id = chat_member.from_user.id
     
-    # Бота добавили в чат (стал администратором или участником)
     if new_status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER) and \
        old_status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED):
         
@@ -42,7 +34,6 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             f"Bot added to chat {chat.id} ({chat.title}) by user {owner_id}"
         )
         
-        # Создаём конфигурацию чата (не активна по умолчанию)
         config = ChatConfigInput(
             chat_id=chat.id,
             chat_title=chat.title,
@@ -56,7 +47,6 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             storage.chat_configs.upsert(config)
             LOGGER.info(f"Chat config created for chat {chat.id}")
             
-            # Отправляем приветствие в чат
             await context.bot.send_message(
                 chat_id=chat.id,
                 text=(
@@ -67,7 +57,6 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 parse_mode=ParseMode.HTML
             )
             
-            # Отправляем уведомление владельцу в ЛС
             try:
                 await context.bot.send_message(
                     chat_id=owner_id,
@@ -83,14 +72,12 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         except Exception as e:
             LOGGER.error(f"Failed to create chat config for {chat.id}: {e}")
     
-    # Бота удалили из чата
     elif new_status in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED) and \
          old_status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER):
         
         LOGGER.info(f"Bot removed from chat {chat.id} ({chat.title})")
         
         try:
-            # Деактивируем чат вместо удаления (сохраняем статистику)
             storage.chat_configs.update(chat.id, is_active=False)
             LOGGER.info(f"Chat {chat.id} deactivated")
         except Exception as e:

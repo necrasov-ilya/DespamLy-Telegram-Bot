@@ -1,7 +1,4 @@
-"""
-Меню управления чатами в личных сообщениях владельца.
-Команда /mychats показывает список чатов и меню настройки.
-"""
+"""Owner chat management menu via /mychats command."""
 from __future__ import annotations
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -15,14 +12,10 @@ LOGGER = get_logger(__name__)
 
 
 async def cmd_mychats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Команда /mychats - показывает список чатов владельца.
-    Работает только в личных сообщениях.
-    """
+    """Show list of owner's chats (DM only)."""
     if not update.effective_user or not update.effective_message:
         return
     
-    # Проверка что команда в ЛС
     if update.effective_message.chat.type != "private":
         await update.effective_message.reply_text(
             "❌ Эта команда работает только в личных сообщениях.\n"
@@ -32,8 +25,6 @@ async def cmd_mychats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     
     owner_id = update.effective_user.id
     storage = get_storage()
-    
-    # Получаем все чаты владельца
     chats = storage.chat_configs.get_by_owner_id(owner_id)
     
     if not chats:
@@ -48,12 +39,10 @@ async def cmd_mychats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
     
-    # Формируем список с кнопками
     message = f"🏠 <b>Твои чаты ({len(chats)})</b>\n\n"
     
     keyboard = []
     for chat in chats:
-        # Статус чата
         status_emoji = "✅" if chat.is_active else "⚠️"
         mode_emoji = {
             "delete_only": "🗑️",
@@ -61,7 +50,6 @@ async def cmd_mychats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "notify_only": "🔍",
         }.get(chat.policy_mode, "❓")
         
-        # Название кнопки
         chat_title = chat.chat_title or f"Chat {chat.chat_id}"
         button_text = f"{status_emoji} {chat_title} {mode_emoji}"
         
@@ -72,7 +60,6 @@ async def cmd_mychats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
         ])
     
-    # Кнопка справки
     keyboard.append([
         InlineKeyboardButton("❓ Справка", callback_data="help_mychats")
     ])
@@ -98,7 +85,6 @@ async def on_chat_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     
     await query.answer()
     
-    # Извлекаем chat_id
     parts = query.data.split(":")
     if len(parts) != 2:
         await query.edit_message_text("❌ Ошибка формата данных")
@@ -117,12 +103,10 @@ async def on_chat_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text("❌ Чат не найден")
         return
     
-    # Проверка владельца
     if chat_config.owner_id != query.from_user.id:
         await query.answer("❌ Ты не владелец этого чата", show_alert=True)
         return
     
-    # Формируем меню чата
     status = "✅ Активен" if chat_config.is_active else "⚠️ Не активен"
     mode_name = {
         "delete_only": "🗑️ Удаление спама",
@@ -141,10 +125,8 @@ async def on_chat_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         f"<b>Whitelist:</b> {len(chat_config.whitelist) if chat_config.whitelist else 0} пользователей"
     )
     
-    # Кнопки действий
     keyboard = []
     
-    # Кнопка активации/деактивации
     if chat_config.is_active:
         keyboard.append([
             InlineKeyboardButton("⏸️ Приостановить защиту", callback_data=f"pause:{chat_id}")
@@ -154,27 +136,18 @@ async def on_chat_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
             InlineKeyboardButton("▶️ Активировать защиту", callback_data=f"activate:{chat_id}")
         ])
     
-    # Кнопка изменения режима
     keyboard.append([
         InlineKeyboardButton("🔄 Изменить режим", callback_data=f"change_mode:{chat_id}")
     ])
-    
-    # Кнопка whitelist
     keyboard.append([
         InlineKeyboardButton("⭐ Управление whitelist", callback_data=f"whitelist:{chat_id}")
     ])
-    
-    # Кнопка статистики
     keyboard.append([
         InlineKeyboardButton("📊 Статистика (7 дней)", callback_data=f"stats:{chat_id}")
     ])
-    
-    # Кнопка удаления
     keyboard.append([
         InlineKeyboardButton("🗑️ Удалить чат", callback_data=f"delete_chat:{chat_id}")
     ])
-    
-    # Кнопка назад
     keyboard.append([
         InlineKeyboardButton("◀️ Назад к списку", callback_data="back_to_mychats")
     ])
@@ -200,8 +173,6 @@ async def on_activate_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         storage.chat_configs.update(chat_id, is_active=True)
         await query.answer("✅ Защита активирована!", show_alert=True)
-        
-        # Обновляем меню
         await on_chat_menu_callback(update, context)
         
         LOGGER.info(f"Chat {chat_id} activated by user {query.from_user.id}")
@@ -224,8 +195,6 @@ async def on_pause_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         storage.chat_configs.update(chat_id, is_active=False)
         await query.answer("⏸️ Защита приостановлена", show_alert=True)
-        
-        # Обновляем меню
         await on_chat_menu_callback(update, context)
         
         LOGGER.info(f"Chat {chat_id} paused by user {query.from_user.id}")
@@ -292,8 +261,6 @@ async def on_set_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         }
         
         await query.answer(f"✅ Режим изменён: {mode_names.get(new_mode)}", show_alert=True)
-        
-        # Возвращаемся в меню чата
         update.callback_query.data = f"chat_menu:{chat_id}"
         await on_chat_menu_callback(update, context)
         
@@ -310,6 +277,4 @@ async def on_back_to_mychats_callback(update: Update, context: ContextTypes.DEFA
         return
     
     await query.answer()
-    
-    # Эмулируем команду /mychats
     await cmd_mychats(update, context)

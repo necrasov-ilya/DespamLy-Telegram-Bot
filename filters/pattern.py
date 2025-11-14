@@ -149,8 +149,6 @@ class PatternClassifier(BaseFilter):
         brand_hits = sum(1 for kw in self.brand_keywords if kw in text_lower)
         feat_whitelist = min(whitelist_hits, 5)
         feat_brand = min(brand_hits, 3)
-        
-        # Собираем все признаки
         features = np.array([
             # Scores (2)
             feat_keyword,
@@ -209,13 +207,8 @@ class PatternClassifier(BaseFilter):
             )
         
         try:
-            # Извлекаем признаки
             features = self._extract_features(text, metadata, keyword_score, tfidf_score)
-            
-            # Предсказание LightGBM
             raw_proba = self.lgbm.predict_proba([features])[0, 1]
-            
-            # Калибровка через isotonic regression
             calibrated_proba = float(self.calibrator.predict([raw_proba])[0])
             calibrated_proba = np.clip(calibrated_proba, 0.0, 1.0)
             

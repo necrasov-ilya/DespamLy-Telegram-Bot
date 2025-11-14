@@ -40,20 +40,14 @@ async def on_ban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     
     storage = get_storage()
-    
-    # Проверка прав владельца
     chat_config = storage.chat_configs.get_by_chat_id(chat_id)
     if not chat_config or chat_config.owner_id != query.from_user.id:
         await query.answer("❌ У тебя нет прав на это действие", show_alert=True)
         return
-    
-    # Удаляем сообщение
     try:
         await context.bot.delete_message(chat_id, message_id)
     except Exception as e:
         LOGGER.warning(f"Failed to delete message {message_id}: {e}")
-    
-    # Баним пользователя
     try:
         await context.bot.ban_chat_member(chat_id, user_id)
         result = "⛔ Сообщение удалено, пользователь забанен."
@@ -72,8 +66,6 @@ async def on_ban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
     except Exception as e:
         LOGGER.warning(f"Failed to update stats: {e}")
-    
-    # Удаляем кнопки и обновляем текст
     await query.edit_message_text(
         query.message.text_html + f"\n\n<i>{result}</i>",
         parse_mode=ParseMode.HTML
@@ -109,8 +101,6 @@ async def on_ham_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     
     storage = get_storage()
-    
-    # Проверка прав владельца
     chat_config = storage.chat_configs.get_by_chat_id(chat_id)
     if not chat_config or chat_config.owner_id != query.from_user.id:
         await query.answer("❌ У тебя нет прав на это действие", show_alert=True)
@@ -120,8 +110,6 @@ async def on_ham_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # dataset_manager.add_sample(text, label=0)
     
     result = "✅ Отмечено как не-спам. Спасибо за обратную связь!"
-    
-    # Удаляем кнопки и обновляем текст
     await query.edit_message_text(
         query.message.text_html + f"\n\n<i>{result}</i>",
         parse_mode=ParseMode.HTML
@@ -156,14 +144,10 @@ async def on_whitelist_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     storage = get_storage()
-    
-    # Проверка прав владельца
     chat_config = storage.chat_configs.get_by_chat_id(chat_id)
     if not chat_config or chat_config.owner_id != query.from_user.id:
         await query.answer("❌ У тебя нет прав на это действие", show_alert=True)
         return
-    
-    # Получаем username пользователя
     try:
         user = await context.bot.get_chat_member(chat_id, user_id)
         username = user.user.username
@@ -175,8 +159,6 @@ async def on_whitelist_callback(update: Update, context: ContextTypes.DEFAULT_TY
         LOGGER.error(f"Failed to get user info: {e}")
         await query.answer("❌ Не удалось получить информацию о пользователе", show_alert=True)
         return
-    
-    # Добавляем в whitelist
     current_whitelist = chat_config.whitelist or []
     if username not in current_whitelist:
         current_whitelist.append(username)
@@ -184,8 +166,6 @@ async def on_whitelist_callback(update: Update, context: ContextTypes.DEFAULT_TY
         try:
             storage.chat_configs.update(chat_id, whitelist=current_whitelist)
             result = f"⭐ @{username} добавлен в whitelist"
-            
-            # Удаляем кнопки и обновляем текст
             await query.edit_message_text(
                 query.message.text_html + f"\n\n<i>{result}</i>",
                 parse_mode=ParseMode.HTML
@@ -212,14 +192,10 @@ async def on_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     chat_id = int(query.data.split(":")[1])
     storage = get_storage()
-    
-    # Проверка прав
     chat_config = storage.chat_configs.get_by_chat_id(chat_id)
     if not chat_config or chat_config.owner_id != query.from_user.id:
         await query.answer("❌ У тебя нет прав на это действие", show_alert=True)
         return
-    
-    # Получаем статистику
     stats = storage.chat_stats.get_stats(chat_id, days=7)
     
     if not stats:
@@ -306,8 +282,6 @@ async def on_confirm_delete_callback(update: Update, context: ContextTypes.DEFAU
     
     chat_id = int(query.data.split(":")[1])
     storage = get_storage()
-    
-    # Проверка прав
     chat_config = storage.chat_configs.get_by_chat_id(chat_id)
     if not chat_config or chat_config.owner_id != query.from_user.id:
         await query.answer("❌ У тебя нет прав на это действие", show_alert=True)

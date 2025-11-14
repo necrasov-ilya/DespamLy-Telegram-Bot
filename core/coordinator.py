@@ -49,7 +49,6 @@ class FilterCoordinator:
         Returns:
             MessageMetadata с контекстными флагами
         """
-        # Базовые данные
         metadata = MessageMetadata(
             message_id=message.message_id,
             user_id=message.from_user.id if message.from_user else 0,
@@ -57,36 +56,23 @@ class FilterCoordinator:
             chat_id=message.chat_id,
             timestamp=message.date.timestamp() if message.date else 0.0,
         )
-        
-        # Проверка на ответ (reply)
         is_reply = message.reply_to_message is not None
         reply_to_user_id = None
         reply_to_staff = False
         
         if is_reply and message.reply_to_message.from_user:
             reply_to_user_id = message.reply_to_message.from_user.id
-            
-            # Проверяем, является ли адресат админом/модератором
-            # Пока упрощенно - проверяем по whitelist
             from config.config import settings
             reply_to_staff = reply_to_user_id in settings.WHITELIST_USER_IDS
-        
-        # Проверка на forward
         is_forwarded = message.forward_from is not None or message.forward_from_chat is not None
-        
-        # Проверка на админа отправителя
         author_is_admin = False
         if message.from_user:
             from config.config import settings
             author_is_admin = message.from_user.id in settings.WHITELIST_USER_IDS
-        
-        # Проверка на пост из канала
         is_channel_announcement = (
             message.sender_chat is not None and 
             message.sender_chat.type == "channel"
         )
-        
-        # Собираем всё вместе
         from dataclasses import replace
         metadata = replace(
             metadata,
@@ -121,7 +107,6 @@ class FilterCoordinator:
         Returns:
             AnalysisResult с оценками всех трёх фильтров
         """
-        # Шаг 1: Извлекаем метаданные (если есть Telegram Message)
         metadata = None
         if message:
             metadata = self._extract_metadata(message)
@@ -130,15 +115,11 @@ class FilterCoordinator:
                 f"is_forwarded={metadata.is_forwarded}, "
                 f"author_is_admin={metadata.author_is_admin}"
             )
-        
-        # Шаг 2: Простые фильтры (Keyword, TF-IDF)
         keyword_result = await self.keyword_filter.analyze(text)
         LOGGER.debug(f"Keyword: {keyword_result.score:.3f}")
         
         tfidf_result = await self.tfidf_filter.analyze(text)
         LOGGER.debug(f"TF-IDF: {tfidf_result.score:.3f}")
-        
-        # Шаг 3: Pattern classifier (использует scores из предыдущих фильтров)
         pattern_result = await self.pattern_filter.analyze(
             text=text,
             metadata=metadata,
@@ -146,8 +127,6 @@ class FilterCoordinator:
             tfidf_score=tfidf_result.score
         )
         LOGGER.debug(f"Pattern: {pattern_result.score:.3f}")
-        
-        # Формируем результат
         result = AnalysisResult(
             keyword_result=keyword_result,
             tfidf_result=tfidf_result,

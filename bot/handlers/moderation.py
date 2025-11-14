@@ -66,8 +66,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     msg: Message = update.effective_message
     if not msg or not msg.from_user or not msg.text:
         return
-    
-    # Игнорируем личные сообщения
     if msg.chat.type == "private":
         return
     
@@ -187,8 +185,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     elif action == Action.NOTIFY:
         spam_detected = 1
         LOGGER.info(f"Spam detected (notify only): {msg.message_id}")
-    
-    # Обновление статистики
     if spam_detected or messages_deleted or users_banned:
         try:
             storage.chat_stats.increment(

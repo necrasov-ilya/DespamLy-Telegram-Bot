@@ -25,7 +25,6 @@ class TfidfFilter(BaseFilter):
         super().__init__("tfidf")
         
         root_dir = Path(__file__).resolve().parents[1]
-        # Новая архитектура: отдельные файлы для vectorizer и classifier
         self.vectorizer_path = Path(model_path).parent / "tfidf_vectorizer.pkl" if model_path else root_dir / "models" / "tfidf_vectorizer.pkl"
         self.classifier_path = Path(model_path).parent / "tfidf_classifier.pkl" if model_path else root_dir / "models" / "tfidf_classifier.pkl"
         self.dataset_path = Path(dataset_path) if dataset_path else root_dir / "data" / "messages.csv"
@@ -70,10 +69,7 @@ class TfidfFilter(BaseFilter):
             )
         
         try:
-            # Векторизация текста
             features = self.vectorizer.transform([text])
-            
-            # Предсказание с калибровкой
             proba = self.classifier.predict_proba(features)[0]
             spam_proba = float(proba[1]) if len(proba) > 1 else 0.5
             prediction = int(spam_proba > 0.5)

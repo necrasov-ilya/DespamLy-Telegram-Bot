@@ -39,12 +39,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     """
     if not update.effective_message or not update.effective_chat:
         return
-    
-    # Только в группах
     if update.effective_chat.type == "private":
         return
-    
-    # Проверка прав админа
     if not await _is_admin(update, context):
         await update.effective_message.reply_text(
             "❌ Эта команда доступна только администраторам"
@@ -60,12 +56,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             "Владелец должен настроить защиту через /mychats в личке с ботом"
         )
         return
-    
-    # Статус
     status_emoji = "✅" if chat_config.is_active else "⚠️"
     status_text = "Активна" if chat_config.is_active else "Приостановлена"
-    
-    # Режим
     mode_info = {
         "delete_only": ("🗑️ Удаление спама", "Удаляет спам-сообщения"),
         "delete_and_ban": ("⛔ Удаление + бан", "Удаляет спам и банит при высокой уверенности"),
@@ -76,8 +68,6 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         chat_config.policy_mode,
         ("❓ Неизвестно", "")
     )
-    
-    # Получаем статистику за сегодня
     from datetime import datetime
     today_stats = storage.chat_stats.get_stats(chat_config.chat_id, days=1)
     
@@ -115,12 +105,8 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     if not update.effective_message or not update.effective_chat:
         return
-    
-    # Только в группах
     if update.effective_chat.type == "private":
         return
-    
-    # Проверка прав админа
     if not await _is_admin(update, context):
         await update.effective_message.reply_text(
             "❌ Эта команда доступна только администраторам"
@@ -168,12 +154,8 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     """
     if not update.effective_message or not update.effective_chat:
         return
-    
-    # Только в группах
     if update.effective_chat.type == "private":
         return
-    
-    # Проверка прав админа
     if not await _is_admin(update, context):
         await update.effective_message.reply_text(
             "❌ Эта команда доступна только администраторам"
