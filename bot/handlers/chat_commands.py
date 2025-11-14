@@ -194,3 +194,92 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.effective_message.reply_text(
             "❌ Ошибка при возобновлении защиты"
         )
+
+
+async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Команда /test <текст> - тестирует бота на переданном тексте.
+    Доступна только администраторам. Имитирует обычное сообщение пользователя.
+    """
+    if not update.effective_message or not update.effective_chat:
+        return
+    
+    if update.effective_chat.type == "private":
+        await update.effective_message.reply_text(
+            "❌ Эта команда работает только в группах"
+        )
+        return
+    
+    if not await _is_admin(update, context):
+        await update.effective_message.reply_text(
+            "❌ Эта команда доступна только администраторам"
+        )
+        return
+    
+    if not context.args:
+        await update.effective_message.reply_html(
+            "📝 <b>Использование:</b>\n\n"
+            "<code>/test ваше тестовое сообщение</code>\n\n"
+            "Бот проанализирует текст как обычное сообщение пользователя "
+            "и покажет результат проверки."
+        )
+        return
+    
+    test_text = " ".join(context.args)
+    
+    from core.coordinator import get_coordinator
+    from core.types import MessageData
+    
+    coordinator = get_coordinator()
+    
+    msg_data = MessageData(
+        text=test_text,
+        user_id=999999999,
+        username="test_user",
+        chat_id=update.effective_chat.id,
+    )
+    
+    try:
+        result = coordinator.check_message(msg_data)
+        
+        verdict_emoji = {
+            "allow": "✅",
+            "notify": "⚠️",
+            "delete": "🗑️",
+            "kick": "⛔",
+        }.get(result.verdict, "❓")
+        
+        verdict_text = {
+            "allow": "Разрешить",
+            "notify": "Уведомить владельца",
+            "delete": "Удалить сообщение",
+            "kick": "Удалить + забанить",
+        }.get(result.verdict, "Неизвестно")
+        
+        scores_text = "\n".join([
+            f"• {name}: {score:.2%}"
+            for name, score in result.scores.items()
+        ])
+        
+        message = (
+            f"🧪 <b>Результат тестирования</b>\n\n"
+            f"<b>Текст:</b>\n<code>{test_text[:200]}</code>\n\n"
+            f"<b>Verdict:</b> {verdict_emoji} {verdict_text}\n"
+            f"<b>Confidence:</b> {result.confidence:.2%}\n\n"
+            f"<b>Оценки фильтров:</b>\n{scores_text}\n\n"
+            f"<i>Режим тестирования - действия не выполняются</i>"
+        )
+        
+        await update.effective_message.reply_html(message)
+        
+        LOGGER.info(
+            f"Test command used in chat {update.effective_chat.id} "
+            f"by admin {update.effective_user.id}: verdict={result.verdict}, "
+            f"confidence={result.confidence:.2f}"
+        )
+        
+    except Exception as e:
+        LOGGER.error(f"Error in test command: {e}")
+        await update.effective_message.reply_text(
+            f"❌ Ошибка при тестировании: {e}"
+        )

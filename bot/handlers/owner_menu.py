@@ -140,7 +140,7 @@ async def on_chat_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         InlineKeyboardButton("🔄 Изменить режим", callback_data=f"change_mode:{chat_id}")
     ])
     keyboard.append([
-        InlineKeyboardButton("⭐ Управление whitelist", callback_data=f"whitelist:{chat_id}")
+        InlineKeyboardButton("⭐ Управление whitelist", callback_data=f"whitelist_menu:{chat_id}")
     ])
     keyboard.append([
         InlineKeyboardButton("📊 Статистика (7 дней)", callback_data=f"stats:{chat_id}")
@@ -278,3 +278,43 @@ async def on_back_to_mychats_callback(update: Update, context: ContextTypes.DEFA
     
     await query.answer()
     await cmd_mychats(update, context)
+
+
+async def on_help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показывает справку по управлению чатами."""
+    query = update.callback_query
+    if not query:
+        return
+    
+    await query.answer()
+    
+    message = (
+        "📖 <b>Справка по управлению</b>\n\n"
+        "<b>Легенда статусов:</b>\n"
+        "✅ - Защита активна\n"
+        "⚠️ - Защита приостановлена\n\n"
+        "<b>Режимы работы:</b>\n"
+        "🗑️ - Удаление спама (рекомендуется)\n"
+        "⛔ - Удаление + бан (агрессивный)\n"
+        "🔍 - Только уведомления (тестовый)\n\n"
+        "<b>Команды в группе:</b>\n"
+        "/status - Статус защиты\n"
+        "/pause - Приостановить\n"
+        "/resume - Возобновить\n"
+        "/test {текст} - Тестировать бота\n\n"
+        "<b>Управление:</b>\n"
+        "• Настройка порогов срабатывания\n"
+        "• Whitelist для доверенных пользователей\n"
+        "• Статистика за последние 7 дней\n"
+        "• Удаление чата из списка"
+    )
+    
+    keyboard = [[
+        InlineKeyboardButton("◀️ Назад к списку", callback_data="back_to_mychats")
+    ]]
+    
+    await query.edit_message_text(
+        message,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )

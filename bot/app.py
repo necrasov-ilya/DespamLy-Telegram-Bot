@@ -21,6 +21,7 @@ BOT_COMMANDS: List[BotCommand] = [
     BotCommand("status", "Статус защиты чата"),
     BotCommand("pause", "Приостановить защиту"),
     BotCommand("resume", "Возобновить защиту"),
+    BotCommand("test", "Тестировать бота (админы)"),
 ]
 
 

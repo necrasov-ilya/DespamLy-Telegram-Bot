@@ -120,6 +120,105 @@ async def on_ham_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 
+async def on_whitelist_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Callback: whitelist_menu:<chat_id>
+    Показывает меню управления whitelist.
+    """
+    query = update.callback_query
+    if not query:
+        return
+    
+    await query.answer()
+    
+    parts = query.data.split(":")
+    if len(parts) != 2:
+        await query.edit_message_text("❌ Неверный формат данных")
+        return
+    
+    try:
+        chat_id = int(parts[1])
+    except ValueError:
+        await query.edit_message_text("❌ Неверный ID чата")
+        return
+    
+    storage = get_storage()
+    chat_config = storage.chat_configs.get_by_chat_id(chat_id)
+    
+    if not chat_config or chat_config.owner_id != query.from_user.id:
+        await query.answer("❌ У тебя нет прав на это действие", show_alert=True)
+        return
+    
+    whitelist = chat_config.whitelist or []
+    
+    if whitelist:
+        users_list = "\n".join([f"• @{username}" for username in whitelist])
+        message = (
+            f"⭐ <b>Whitelist чата</b>\n\n"
+            f"<b>Доверенные пользователи ({len(whitelist)}):</b>\n"
+            f"{users_list}\n\n"
+            f"<i>Эти пользователи не проверяются антиспамом.</i>\n\n"
+            f"Чтобы добавить пользователя в whitelist, нажми кнопку 'Whitelist' "
+            f"в уведомлении о спаме."
+        )
+    else:
+        message = (
+            f"⭐ <b>Whitelist чата</b>\n\n"
+            f"<i>Список доверенных пользователей пуст.</i>\n\n"
+            f"Чтобы добавить пользователя в whitelist, нажми кнопку 'Whitelist' "
+            f"в уведомлении о спаме."
+        )
+    
+    keyboard = []
+    
+    if whitelist:
+        keyboard.append([
+            InlineKeyboardButton("🗑️ Очистить whitelist", callback_data=f"clear_whitelist:{chat_id}")
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton("◀️ Назад", callback_data=f"chat_menu:{chat_id}")
+    ])
+    
+    await query.edit_message_text(
+        message,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def on_clear_whitelist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Callback: clear_whitelist:<chat_id>
+    Очищает whitelist чата.
+    """
+    query = update.callback_query
+    if not query:
+        return
+    
+    await query.answer()
+    
+    chat_id = int(query.data.split(":")[1])
+    storage = get_storage()
+    chat_config = storage.chat_configs.get_by_chat_id(chat_id)
+    
+    if not chat_config or chat_config.owner_id != query.from_user.id:
+        await query.answer("❌ У тебя нет прав на это действие", show_alert=True)
+        return
+    
+    try:
+        storage.chat_configs.update(chat_id, whitelist=[])
+        await query.answer("✅ Whitelist очищен", show_alert=True)
+        
+        update.callback_query.data = f"whitelist_menu:{chat_id}"
+        await on_whitelist_menu_callback(update, context)
+        
+        LOGGER.info(f"Whitelist cleared in chat {chat_id} by owner {query.from_user.id}")
+    except Exception as e:
+        LOGGER.error(f"Failed to clear whitelist: {e}")
+        await query.answer("❌ Ошибка очистки whitelist", show_alert=True)
+
+
 async def on_whitelist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Callback: whitelist:<chat_id>:<user_id>
