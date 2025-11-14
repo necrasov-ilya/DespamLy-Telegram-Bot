@@ -38,19 +38,11 @@ class RateLimiter:
         """
         now = time.time()
         key = (chat_id, user_id)
-        
-        # Периодическая очистка старых записей (каждую минуту)
         if now - self._last_cleanup > 60:
             self._cleanup_old_entries(now)
             self._last_cleanup = now
-        
-        # Получаем или создаём список timestamps для этого пользователя
         timestamps = self._windows[key]
-        
-        # Удаляем timestamps старше 1 минуты
         timestamps[:] = [ts for ts in timestamps if now - ts < 60]
-        
-        # Проверяем лимиты
         recent_1s = sum(1 for ts in timestamps if now - ts < 1)
         recent_1m = len(timestamps)
         
@@ -67,8 +59,6 @@ class RateLimiter:
                 f"count={recent_1m}"
             )
             return True
-        
-        # Добавляем текущий timestamp
         timestamps.append(now)
         
         return False
@@ -80,14 +70,9 @@ class RateLimiter:
         keys_to_remove = []
         
         for key, timestamps in self._windows.items():
-            # Удаляем старые timestamps
             timestamps[:] = [ts for ts in timestamps if now - ts < 60]
-            
-            # Если больше нет активных timestamps, помечаем ключ на удаление
             if not timestamps:
                 keys_to_remove.append(key)
-        
-        # Удаляем пустые ключи
         for key in keys_to_remove:
             del self._windows[key]
         

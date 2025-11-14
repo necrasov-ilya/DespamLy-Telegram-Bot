@@ -140,7 +140,6 @@ async def send_individual_notification(
     """
     Отправляет индивидуальное уведомление с кнопками действий.
     """
-    # Формируем текст
     action_emoji = {
         "deleted": "🗑️",
         "deleted_and_banned": "⛔",
@@ -156,8 +155,6 @@ async def send_individual_notification(
         f"✅ Действие: {action}\n\n"
         f"<i>{text_preview}</i>"
     )
-    
-    # Кнопки действий
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -202,31 +199,22 @@ async def send_grouped_notification(
     """
     if not notifications:
         return
-    
-    # Группируем по чатам
     by_chat: Dict[int, List[PendingNotification]] = defaultdict(list)
     for notif in notifications:
         by_chat[notif.chat_id].append(notif)
-    
-    # Статистика по действиям
     actions_count = defaultdict(int)
     for notif in notifications:
         actions_count[notif.action] += 1
-    
-    # Формируем текст
     message = (
         f"🚨 <b>{len(notifications)} спам-сообщений</b> за последние 5 минут\n\n"
     )
     
     for chat_id, chat_notifs in by_chat.items():
-        # Берём title из первого уведомления (все из одного чата)
         message += f"📂 Чат ID {chat_id}: {len(chat_notifs)} сообщений\n"
     
     message += "\n<b>Действия:</b>\n"
     for action, count in actions_count.items():
         message += f" • {action}: {count}\n"
-    
-    # Кнопки
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 Подробнее", callback_data="batch_details")]
     ])
