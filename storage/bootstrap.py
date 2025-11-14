@@ -1,23 +1,24 @@
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
+import os
 from threading import RLock
 from typing import Optional
 
-from .migrations import MIGRATIONS
-from .sqlite import Storage
+import psycopg2
+from psycopg2.extensions import connection as Connection
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "storage.sqlite"
+from .migrations import MIGRATIONS
+from .postgres import Storage
+
+DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
 
 _storage_instance: Optional[Storage] = None
 _storage_lock = RLock()
 
 
-def init_storage(*, db_path: Optional[Path] = None) -> Storage:
+def init_storage(*, database_url: Optional[str] = None) -> Storage:
     """
-    Initialise storage singleton. Ensures migrations are applied and the connection
-    is configured with sane defaults for concurrent access from async handlers.
+    Initialise storage singleton with PostgreSQL. Ensures migrations are applied.
     """
     global _storage_instance
 
@@ -28,19 +29,10 @@ def init_storage(*, db_path: Optional[Path] = None) -> Storage:
         if _storage_instance is not None:
             return _storage_instance
 
-        path = Path(db_path) if db_path else DEFAULT_DB_PATH
-        path.parent.mkdir(parents=True, exist_ok=True)
+        db_url = database_url or os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
-        conn = sqlite3.connect(
-            path,
-            detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
-            check_same_thread=False,
-        )
-        conn.row_factory = sqlite3.Row
-
-        with conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA foreign_keys=ON;")
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = False
 
         _apply_migrations(conn)
 
@@ -54,20 +46,23 @@ def get_storage() -> Storage:
     return _storage_instance
 
 
-def _apply_migrations(conn: sqlite3.Connection) -> None:
+def _apply_migrations(conn: Connection) -> None:
     with conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)")
+        with conn.cursor() as cur:
+            cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)")
+        conn.commit()
 
-    applied = {
-        row["version"]
-        for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
-    }
+    with conn.cursor() as cur:
+        cur.execute("SELECT version FROM schema_migrations ORDER BY version")
+        applied = {row[0] for row in cur.fetchall()}
 
     for version, sql in MIGRATIONS:
         if version in applied:
             continue
 
         with conn:
-            conn.executescript(sql)
-            conn.execute("INSERT INTO schema_migrations(version) VALUES (?)", (version,))
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                cur.execute("INSERT INTO schema_migrations(version) VALUES (%s)", (version,))
+            conn.commit()
 
