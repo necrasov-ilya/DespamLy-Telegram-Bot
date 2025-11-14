@@ -9,6 +9,7 @@ from telegram.ext import Application, ApplicationBuilder, Defaults
 from config.config import settings
 from utils.logger import get_logger
 from bot.handlers import register_handlers
+from storage.bootstrap import init_storage
 
 LOGGER = get_logger(__name__)
 
@@ -25,6 +26,8 @@ BOT_COMMANDS: List[BotCommand] = [
 
 def run_polling() -> None:
     LOGGER.info("▶️  Запуск бота (polling)…")
+    
+    init_storage()
     
     app = (
         ApplicationBuilder()
