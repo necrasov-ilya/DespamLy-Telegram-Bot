@@ -199,7 +199,9 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Команда /test <текст> - тестирует бота на переданном тексте.
-    Доступна только администраторам. Имитирует обычное сообщение пользователя.
+    Доступна только администраторам. 
+    ПОЛНАЯ СИМУЛЯЦИЯ: проходит тот же пайплайн что и обычное сообщение,
+    отправляет уведомление в модераторский чат, НО не банит пользователя.
     """
     if not update.effective_message or not update.effective_chat:
         return
@@ -220,19 +222,35 @@ async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_html(
             "📝 <b>Использование:</b>\n\n"
             "<code>/test ваше тестовое сообщение</code>\n\n"
-            "Бот проанализирует текст как обычное сообщение пользователя "
-            "и покажет результат проверки."
+            "Бот проанализирует текст ТОЧНО ТАК ЖЕ как обычное сообщение:\n"
+            "• Проверит все фильтры\n"
+            "• Отправит уведомление в модераторский чат (если есть)\n"
+            "• Удалит тестовое сообщение (если спам)\n"
+            "• НЕ банит (только в тесте)"
         )
         return
     
     test_text = " ".join(context.args)
     
     from core.coordinator import get_coordinator
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    import hashlib
     
     coordinator = get_coordinator()
+    storage = get_storage()
     
     try:
-        result = await coordinator.analyze(test_text, message=None)
+        chat_config = storage.chat_configs.get_by_chat_id(update.effective_chat.id)
+        
+        if not chat_config or not chat_config.is_active:
+            await update.effective_message.reply_text(
+                "❌ Защита не активна в этом чате.\n\n"
+                "Используй /mychats для настройки."
+            )
+            return
+        
+        # Анализ текста (тот же пайплайн)
+        result = await coordinator.analyze(test_text, message=update.effective_message)
         
         scores_text = "\n".join([
             f"• Keyword: {result.keyword_result.score:.2%}",
@@ -243,43 +261,184 @@ async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         avg_score = result.average_score
         max_score = result.max_score
         
-        storage = get_storage()
-        chat_config = storage.chat_configs.get_by_chat_id(update.effective_chat.id)
+        # Определяем действие (тот же алгоритм что в moderation.py)
+        action = "allow"
+        action_confidence = avg_score
         
-        verdict_emoji = "✅"
-        verdict_text = "Разрешить (проходит все проверки)"
-        
-        if chat_config:
-            if chat_config.policy_mode == "delete_and_ban" and avg_score >= chat_config.meta_kick:
-                verdict_emoji = "⛔"
-                verdict_text = f"Удалить + забанить (≥{chat_config.meta_kick:.0%})"
+        # ВАЖНО: учитываем policy_mode!
+        if chat_config.policy_mode == "notify_only":
+            # В режиме только уведомлений - НИКОГДА не удаляем
+            if avg_score >= 0.65:
+                action = "notify"
+        elif chat_config.policy_mode == "delete_and_ban":
+            if avg_score >= chat_config.meta_kick:
+                action = "kick"  # В тесте не баним, только показываем
             elif avg_score >= chat_config.meta_delete:
-                verdict_emoji = "🗑️"
-                verdict_text = f"Удалить сообщение (≥{chat_config.meta_delete:.0%})"
-            elif avg_score >= 0.65:
-                verdict_emoji = "⚠️"
-                verdict_text = "Уведомить владельца (≥65%)"
+                action = "delete"
+        else:  # delete_only (по умолчанию)
+            if avg_score >= chat_config.meta_delete:
+                action = "delete"
         
-        message = (
-            f"🧪 <b>Результат тестирования</b>\n\n"
-            f"<b>Текст:</b>\n<code>{test_text[:200]}</code>\n\n"
-            f"<b>Verdict:</b> {verdict_emoji} {verdict_text}\n"
-            f"<b>Средняя оценка:</b> {avg_score:.2%}\n"
-            f"<b>Максимум:</b> {max_score:.2%}\n\n"
-            f"<b>Оценки фильтров:</b>\n{scores_text}\n\n"
-            f"<i>Режим тестирования - действия не выполняются</i>"
+        # Записываем в статистику
+        from datetime import datetime
+        storage.chat_stats.increment(
+            chat_config.chat_id,
+            datetime.now(),
+            messages_processed=1,
+            spam_detected=1 if action != "allow" else 0,
+            messages_deleted=1 if action in ("delete", "kick") else 0,
+            users_banned=0  # В тесте не баним
         )
         
-        await update.effective_message.reply_html(message)
+        # Действия в зависимости от verdict
+        test_message_id = update.effective_message.message_id
+        admin_user = update.effective_user
+        
+        if action == "allow":
+            # Сообщение чистое - просто отвечаем
+            verdict_message = (
+                f"✅ <b>Тест пройден</b>\n\n"
+                f"<b>Текст:</b>\n<code>{test_text[:200]}</code>\n\n"
+                f"<b>Verdict:</b> ✅ Разрешить (проходит все проверки)\n"
+                f"<b>Средняя оценка:</b> {avg_score:.2%}\n"
+                f"<b>Максимум:</b> {max_score:.2%}\n\n"
+                f"<b>Оценки фильтров:</b>\n{scores_text}\n\n"
+                f"<i>Сообщение прошло проверку, никаких действий не требуется.</i>"
+            )
+            
+            # Отправляем в чат
+            await update.effective_message.reply_html(verdict_message)
+            
+        elif action == "notify":
+            # Уведомление - отправляем в модераторский чат или владельцу
+            verdict_message = (
+                f"⚠️ <b>Подозрительное сообщение (тест)</b>\n\n"
+                f"<b>Чат:</b> {chat_config.chat_title}\n"
+                f"<b>От:</b> {admin_user.first_name} (тестирование)\n"
+                f"<b>Текст:</b>\n<code>{test_text[:300]}</code>\n\n"
+                f"<b>Verdict:</b> ⚠️ Уведомление (≥65%)\n"
+                f"<b>Средняя оценка:</b> {avg_score:.2%}\n\n"
+                f"<b>Оценки фильтров:</b>\n{scores_text}\n\n"
+                f"<i>Это тестовое сообщение. Действия не выполнялись.</i>"
+            )
+            
+            # Отправляем в модераторский чат или владельцу
+            if chat_config.moderator_channel_id:
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_config.moderator_channel_id,
+                        text=verdict_message,
+                        parse_mode=ParseMode.HTML
+                    )
+                    # Подтверждение в чате
+                    await update.effective_message.reply_text(
+                        f"⚠️ Подозрительное сообщение!\n"
+                        f"Уведомление отправлено в модераторский чат.\n\n"
+                        f"Средняя оценка: {avg_score:.2%}"
+                    )
+                except Exception as e:
+                    LOGGER.error(f"Failed to send to moderator channel: {e}")
+                    await update.effective_message.reply_html(verdict_message)
+            else:
+                # Нет модераторского чата - отправляем владельцу
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_config.owner_id,
+                        text=verdict_message,
+                        parse_mode=ParseMode.HTML
+                    )
+                    await update.effective_message.reply_text(
+                        f"⚠️ Подозрительное сообщение!\n"
+                        f"Уведомление отправлено владельцу.\n\n"
+                        f"Средняя оценка: {avg_score:.2%}"
+                    )
+                except Exception as e:
+                    LOGGER.error(f"Failed to send to owner: {e}")
+                    await update.effective_message.reply_html(verdict_message)
+        
+        elif action in ("delete", "kick"):
+            # Спам - удаляем тестовое сообщение и отправляем уведомление
+            verdict_text = "🗑️ Удалить" if action == "delete" else "⛔ Удалить + бан"
+            
+            # Удаляем тестовое сообщение
+            try:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=test_message_id
+                )
+                deleted = True
+            except Exception as e:
+                LOGGER.error(f"Failed to delete test message: {e}")
+                deleted = False
+            
+            # Формируем уведомление
+            text_hash = hashlib.sha256(test_text.encode()).hexdigest()[:16]
+            
+            notification = (
+                f"🚨 <b>СПАМ обнаружен (тест)</b>\n\n"
+                f"<b>Чат:</b> {chat_config.chat_title}\n"
+                f"<b>От:</b> {admin_user.first_name} (@{admin_user.username or 'нет'})\n"
+                f"<b>ID:</b> <code>{admin_user.id}</code>\n\n"
+                f"<b>Текст:</b>\n<code>{test_text[:300]}</code>\n\n"
+                f"<b>Verdict:</b> {verdict_text}\n"
+                f"<b>Средняя оценка:</b> {avg_score:.2%}\n"
+                f"<b>Максимум:</b> {max_score:.2%}\n\n"
+                f"<b>Оценки фильтров:</b>\n{scores_text}\n\n"
+                f"<b>Действия выполнены:</b>\n"
+                f"{'✅' if deleted else '❌'} Сообщение удалено\n"
+                f"⚠️ БАН НЕ ПРИМЕНЁН (тестовый режим)\n\n"
+                f"<i>Hash: {text_hash}</i>"
+            )
+            
+            # Кнопки для модератора (как в реальном уведомлении)
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Не спам (Ham)", callback_data=f"ham:{chat_config.chat_id}:{test_message_id}:{admin_user.id}"),
+                    InlineKeyboardButton("⭐ Whitelist", callback_data=f"whitelist:{chat_config.chat_id}:{admin_user.id}")
+                ]
+            ])
+            
+            # Отправляем в модераторский чат или владельцу
+            if chat_config.moderator_channel_id:
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_config.moderator_channel_id,
+                        text=notification,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=keyboard
+                    )
+                    LOGGER.info(f"Test spam notification sent to moderator channel {chat_config.moderator_channel_id}")
+                except Exception as e:
+                    LOGGER.error(f"Failed to send to moderator channel: {e}")
+                    # Fallback - отправляем владельцу
+                    try:
+                        await context.bot.send_message(
+                            chat_id=chat_config.owner_id,
+                            text=notification,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=keyboard
+                        )
+                    except Exception as e2:
+                        LOGGER.error(f"Failed to send to owner: {e2}")
+            else:
+                # Нет модераторского чата - владельцу
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_config.owner_id,
+                        text=notification,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=keyboard
+                    )
+                except Exception as e:
+                    LOGGER.error(f"Failed to send to owner: {e}")
         
         LOGGER.info(
-            f"Test command used in chat {update.effective_chat.id} "
-            f"by admin {update.effective_user.id}: avg={avg_score:.2f}, "
-            f"max={max_score:.2f}"
+            f"Test command in chat {update.effective_chat.id} by admin {admin_user.id}: "
+            f"action={action}, avg={avg_score:.2f}, max={max_score:.2f}"
         )
         
     except Exception as e:
-        LOGGER.error(f"Error in test command: {e}")
+        LOGGER.error(f"Error in test command: {e}", exc_info=True)
         await update.effective_message.reply_text(
             f"❌ Ошибка при тестировании: {e}"
         )

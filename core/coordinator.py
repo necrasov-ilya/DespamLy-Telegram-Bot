@@ -60,15 +60,21 @@ class FilterCoordinator:
         reply_to_user_id = None
         reply_to_staff = False
         
+        from storage.bootstrap import get_storage
+        storage = get_storage()
+        chat_config = storage.chat_configs.get_by_chat_id(message.chat_id)
+        whitelist = chat_config.whitelist if chat_config and chat_config.whitelist else []
+        
         if is_reply and message.reply_to_message.from_user:
             reply_to_user_id = message.reply_to_message.from_user.id
-            from config.config import settings
-            reply_to_staff = reply_to_user_id in settings.WHITELIST_USER_IDS
-        is_forwarded = message.forward_from is not None or message.forward_from_chat is not None
+            reply_to_staff = reply_to_user_id in whitelist
+        
+        is_forwarded = message.forward_origin is not None
+        
         author_is_admin = False
         if message.from_user:
-            from config.config import settings
-            author_is_admin = message.from_user.id in settings.WHITELIST_USER_IDS
+            author_is_admin = message.from_user.id in whitelist
+        
         is_channel_announcement = (
             message.sender_chat is not None and 
             message.sender_chat.type == "channel"

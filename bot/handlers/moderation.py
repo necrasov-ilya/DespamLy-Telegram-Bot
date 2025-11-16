@@ -226,7 +226,7 @@ def _decide_action(analysis: AnalysisResult, chat_config: ChatConfig) -> Action:
     meta_score = _extract_confidence(analysis)
     
     if chat_config.policy_mode == "notify_only":
-        if meta_score >= chat_config.meta_delete:
+        if meta_score >= 0.65:
             return Action.NOTIFY
         return Action.APPROVE
     
