@@ -40,7 +40,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_primer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /primer - полный экскурс по возможностям бота."""
-    if not update.effective_message:
+    if not update.effective_message or not update.effective_chat:
+        return
+
+    if update.effective_chat.type != "private":
+        await update.effective_message.reply_html(
+            "📬 Эта команда доступна только в личных сообщениях.\n"
+            "Открой диалог со мной и используй <code>/primer</code>."
+        )
         return
     
     message = (
